@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /super-admin
+Disallow: /database
+Disallow: /users
+Disallow: /finance
+Disallow: /alerts
+Disallow: /settings
+Disallow: /attendance
+Disallow: /reset-password
+
+Sitemap: https://kryinedu.lovable.app/sitemap.xml

@@ -1,0 +1,8 @@
+# EduNex
+
+> EduNex is a modern school management platform — attendance, finance, communications, and administration in one elegant OS for schools.
+
+## Pages
+
+- [Home](/): Overview of EduNex, features, and testimonials for school administrators.
+- [15 Best School Management Software for 2026](/blog/best-school-management-software): Comparison guide of the top school management systems and school administration software for K-12, private, and international schools.
