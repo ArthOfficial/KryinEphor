@@ -1,0 +1,5 @@
+src/components/auth/LoginModal.tsx(34,37): error TS6133: 'role' is declared but its value is never read.
+src/pages/SuperAdminDashboard.tsx(35,5): error TS6133: 'Globe' is declared but its value is never read.
+src/pages/SuperAdminDashboard.tsx(123,12): error TS6133: 'logsLoading' is declared but its value is never read.
+src/pages/SuperAdminDashboard.tsx(123,25): error TS6133: 'setLogsLoading' is declared but its value is never read.
+src/pages/SuperAdminDashboard.tsx(414,44): error TS6133: 'logsError' is declared but its value is never read.

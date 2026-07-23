@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "hyperframes": "^0.7.68"
+  },
+  "_npx": {
+    "packages": [
+      "hyperframes"
+    ]
+  }
+}
