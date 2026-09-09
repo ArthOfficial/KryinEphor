@@ -42,6 +42,7 @@ interface User {
     id: string;
     full_name: string | null;
     role: string;
+    roles?: string[];
     school_id: string | null;
     school_name: string | null;
     status: string;
@@ -61,18 +62,7 @@ interface SchoolGroup {
     isCore: boolean;
 }
 
-/* ─── ROLE CONFIG ──────────────────────────────────────── */
-const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; order: number }> = {
-    superadmin: { label: 'Super Admin', color: 'text-indigo-700', bg: 'bg-indigo-100', order: 0 },
-    admin: { label: 'Admin', color: 'text-amber-700', bg: 'bg-amber-100', order: 1 },
-    teacher: { label: 'Teacher', color: 'text-sky-700', bg: 'bg-sky-100', order: 2 },
-    student: { label: 'Student', color: 'text-emerald-700', bg: 'bg-emerald-100', order: 3 },
-    parent: { label: 'Parent', color: 'text-purple-700', bg: 'bg-purple-100', order: 4 },
-    accountant: { label: 'Accountant', color: 'text-rose-700', bg: 'bg-rose-100', order: 5 },
-    receptionist: { label: 'Receptionist', color: 'text-teal-700', bg: 'bg-teal-100', order: 6 },
-};
-
-const getRoleStyle = (role: string) => ROLE_CONFIG[role] || { label: role, color: 'text-gray-700', bg: 'bg-gray-100', order: 99 };
+import { ROLE_CONFIG, getRoleStyle } from '../config/roles';
 
 /* Permission metadata removed — permissions UI was display-only. */
 
@@ -132,7 +122,7 @@ const UserDrawer: React.FC<{
             setNewPass('');
             setMessage('');
             setErrorMsg('');
-            setAdditionalRoles([]);
+            setAdditionalRoles(user.roles ? user.roles.filter(r => r && r !== user.role) : []);
             setEditingName(false);
             // Fetch this user's assigned roles (primary + additional) via secure RPC.
             (async () => {
@@ -281,10 +271,19 @@ const UserDrawer: React.FC<{
                                     )}
                                 </div>
                                 <p className="text-xs text-muted truncate">{user.email}</p>
-                                <span className={`mt-1 inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest ${ROLE_CONFIG[user.role]?.bg ?? 'bg-gray-100'
-                                    } ${ROLE_CONFIG[user.role]?.color ?? 'text-gray-700'}`}>
-                                    {ROLE_CONFIG[user.role]?.label ?? user.role}
-                                </span>
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                    {(user.roles && user.roles.length > 0 ? user.roles : [user.role]).map(r => {
+                                        const rStyle = getRoleStyle(r);
+                                        return (
+                                            <span
+                                                key={r}
+                                                className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest ${rStyle.bg} ${rStyle.color}`}
+                                            >
+                                                {rStyle.label}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </div>
 
@@ -1300,8 +1299,8 @@ const AddUserModal: React.FC<{
 
 /* ─── USER ROW ─────────────────────────────────────────── */
 const UserRow: React.FC<{ user: User; onSelect: (u: User) => void; idx: number }> = ({ user, onSelect, idx }) => {
-    const style = getRoleStyle(user.role);
     const { user: currentUser } = useAuth();
+    const displayRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
     return (
         <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -1314,7 +1313,7 @@ const UserRow: React.FC<{ user: User; onSelect: (u: User) => void; idx: number }
                 {user.avatar_url || (user.full_name ? user.full_name.substring(0, 2).toUpperCase() : '??')}
             </div>
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-sm text-foreground truncate">{user.full_name || 'Anonymous'}{currentUser?.id === user.id ? ' (YOU)' : ''}</span>
                     {user.recovery_email_verified ? (
                         <span
@@ -1333,9 +1332,19 @@ const UserRow: React.FC<{ user: User; onSelect: (u: User) => void; idx: number }
                             <XCircle className="w-3 h-3" strokeWidth={2.5} />
                         </span>
                     )}
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest flex-shrink-0 ${style.bg} ${style.color}`}>
-                        {style.label}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        {displayRoles.map(r => {
+                            const rStyle = getRoleStyle(r);
+                            return (
+                                <span
+                                    key={r}
+                                    className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest flex-shrink-0 ${rStyle.bg} ${rStyle.color}`}
+                                >
+                                    {rStyle.label}
+                                </span>
+                            );
+                        })}
+                    </div>
                 </div>
                 <p className="text-xs text-muted truncate">{user.email}</p>
             </div>
@@ -1545,11 +1554,12 @@ const UserManagement: React.FC = () => {
             id: u.id,
             full_name: u.full_name,
             role: u.role,
+            roles: u.roles && u.roles.length > 0 ? u.roles : [u.role],
             school_id: u.school_id,
             school_name: u.school_id ? (schoolMap.get(u.school_id) || 'Unknown') : 'Platform',
             status: u.is_active ? 'Active' : 'Disabled',
             is_active: u.is_active,
-            metadata: u.metadata || {},
+            metadata: (u.metadata as { permissions?: unknown[] }) || {},
             updated_at: u.updated_at,
             email: u.email,
             avatar_url: u.avatar_url,
@@ -1560,10 +1570,12 @@ const UserManagement: React.FC = () => {
 
     /* Group & filter */
     const schoolGroups = useMemo(() => {
+        const lowerSearch = searchTerm.toLowerCase();
         const filtered = users.filter(u =>
-            (u.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.role.toLowerCase().includes(searchTerm.toLowerCase())
+            (u.full_name?.toLowerCase() || '').includes(lowerSearch) ||
+            u.email.toLowerCase().includes(lowerSearch) ||
+            u.role.toLowerCase().includes(lowerSearch) ||
+            (u.roles && u.roles.some(r => r.toLowerCase().includes(lowerSearch)))
         );
 
         const map = new Map<string, SchoolGroup>();

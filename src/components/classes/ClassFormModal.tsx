@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { qk } from '../../lib/queryKeys';
 import { Modal } from '../school-finance/shared';
+import { useSchoolTeachers } from '../../hooks/queries';
 
 interface Props {
     open: boolean;
@@ -38,15 +39,7 @@ const ClassFormModal: React.FC<Props> = ({ open, onClose, schoolId, editing }) =
         }
     }, [editing, open]);
 
-    const { data: teachers = [] } = useQuery({
-        queryKey: qk.teachers.bySchool(schoolId),
-        enabled: open,
-        queryFn: async () => {
-            const { data, error } = await supabase.from('profiles').select('id, full_name').eq('school_id', schoolId).eq('role', 'teacher').limit(200);
-            if (error) throw error;
-            return data ?? [];
-        },
-    });
+    const { data: teachers = [] } = useSchoolTeachers(open ? schoolId : null);
 
     const { data: years = [] } = useQuery({
         queryKey: qk.academicYears.bySchool(schoolId),
@@ -130,7 +123,11 @@ const ClassFormModal: React.FC<Props> = ({ open, onClose, schoolId, editing }) =
                 <Field label="Class Teacher">
                     <select className="clay-input w-full px-3 py-2 rounded-lg border border-stone-200 bg-white" value={form.teacher_id} onChange={(e) => setForm({ ...form, teacher_id: e.target.value })}>
                         <option value="">— None —</option>
-                        {teachers.map((t: { id: string; full_name: string | null }) => <option key={t.id} value={t.id}>{t.full_name || t.id.slice(0, 8)}</option>)}
+                        {teachers.map((t) => (
+                            <option key={t.id} value={t.id}>
+                                {t.full_name || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' ? ` (${t.role} • teacher tag)` : ''}
+                            </option>
+                        ))}
                     </select>
                 </Field>
                 <div className="sm:col-span-2">

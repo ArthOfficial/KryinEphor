@@ -175,6 +175,7 @@ export interface UMProfile {
     id: string; full_name: string | null; role: string; school_id: string | null;
     is_active: boolean; metadata: unknown; updated_at: string; email: string;
     avatar_url: string | null; recovery_email: string | null; recovery_email_verified: boolean | null;
+    roles?: string[];
 }
 export interface UMSchool { id: string; name: string; email_domain: string | null; combined_parent_student_account: boolean; }
 export interface UMPermission { id: string; [k: string]: unknown; }
@@ -183,20 +184,122 @@ export function useUserManagementData() {
     return useQuery({
         queryKey: qk.userManagement,
         queryFn: async () => {
-            const [profilesRes, schoolsRes, permsRes] = await Promise.all([
+            const [profilesRes, schoolsRes, permsRes, userRolesRes] = await Promise.all([
                 supabase.from('profiles').select('id,full_name,role,school_id,is_active,metadata,updated_at,email,avatar_url,recovery_email,recovery_email_verified'),
                 supabase.from('schools').select('id, name, email_domain, combined_parent_student_account').is('deleted_at', null),
                 supabase.from('permissions').select('*'),
+                supabase.from('user_roles').select('user_id, role'),
             ]);
             if (profilesRes.error) throw profilesRes.error;
             if (schoolsRes.error) throw schoolsRes.error;
             if (permsRes.error) throw permsRes.error;
+
+            const rolesByUser = new Map<string, string[]>();
+            if (userRolesRes?.data) {
+                for (const row of (userRolesRes.data as { user_id: string; role: string }[])) {
+                    if (!rolesByUser.has(row.user_id)) {
+                        rolesByUser.set(row.user_id, []);
+                    }
+                    rolesByUser.get(row.user_id)!.push(row.role);
+                }
+            }
+
+            const rawProfiles = (profilesRes.data ?? []) as UMProfile[];
+            const profiles = rawProfiles.map(p => {
+                const assigned = rolesByUser.get(p.id) || [];
+                const allRoles = Array.from(new Set([p.role, ...assigned].filter(Boolean)));
+                return {
+                    ...p,
+                    roles: allRoles,
+                };
+            });
+
             return {
-                profiles: (profilesRes.data ?? []) as UMProfile[],
+                profiles,
                 schools: (schoolsRes.data ?? []) as UMSchool[],
                 permissions: (permsRes.data ?? []) as UMPermission[],
             };
         },
+    });
+}
+
+// ── school teachers (including multi-role users with teacher tag) ───────────
+export interface SchoolTeacherOption {
+    id: string;
+    full_name: string | null;
+    email: string;
+    role: string;
+    roles?: string[];
+    avatar_url?: string | null;
+    is_active?: boolean | null;
+}
+
+export async function fetchSchoolTeachers(schoolId: string): Promise<SchoolTeacherOption[]> {
+    if (!schoolId) return [];
+
+    const [primaryTeachersRes, additionalRolesRes] = await Promise.all([
+        supabase
+            .from('profiles')
+            .select('id, full_name, email, role, avatar_url, is_active')
+            .eq('school_id', schoolId)
+            .eq('role', 'teacher')
+            .is('deleted_at', null)
+            .limit(300),
+        supabase
+            .from('user_roles')
+            .select('user_id, role')
+            .eq('role', 'teacher'),
+    ]);
+
+    const teacherMap = new Map<string, SchoolTeacherOption>();
+
+    (primaryTeachersRes.data ?? []).forEach(p => {
+        teacherMap.set(p.id, {
+            id: p.id,
+            full_name: p.full_name,
+            email: p.email,
+            role: p.role,
+            roles: [p.role],
+            avatar_url: p.avatar_url,
+            is_active: p.is_active,
+        });
+    });
+
+    const extraUserIds = (additionalRolesRes.data ?? [])
+        .map(r => r.user_id)
+        .filter(uid => !teacherMap.has(uid));
+
+    if (extraUserIds.length > 0) {
+        const { data: extraProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, role, avatar_url, is_active')
+            .eq('school_id', schoolId)
+            .in('id', extraUserIds)
+            .is('deleted_at', null);
+
+        (extraProfiles ?? []).forEach(p => {
+            teacherMap.set(p.id, {
+                id: p.id,
+                full_name: p.full_name,
+                email: p.email,
+                role: p.role,
+                roles: [p.role, 'teacher'],
+                avatar_url: p.avatar_url,
+                is_active: p.is_active,
+            });
+        });
+    }
+
+    return Array.from(teacherMap.values()).sort((a, b) =>
+        (a.full_name || '').localeCompare(b.full_name || '')
+    );
+}
+
+export function useSchoolTeachers(schoolId: string | null | undefined) {
+    return useQuery({
+        queryKey: qk.teachers.bySchool(schoolId ?? ''),
+        enabled: !!schoolId,
+        queryFn: () => fetchSchoolTeachers(schoolId!),
     });
 }
 

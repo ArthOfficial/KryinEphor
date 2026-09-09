@@ -8,6 +8,19 @@ export interface RouteConfig {
     keywords?: string[];
 }
 
+export const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; order: number }> = {
+    superadmin: { label: 'Super Admin', color: 'text-indigo-700', bg: 'bg-indigo-100', order: 0 },
+    admin: { label: 'Admin', color: 'text-amber-700', bg: 'bg-amber-100', order: 1 },
+    teacher: { label: 'Teacher', color: 'text-sky-700', bg: 'bg-sky-100', order: 2 },
+    student: { label: 'Student', color: 'text-emerald-700', bg: 'bg-emerald-100', order: 3 },
+    parent: { label: 'Parent', color: 'text-purple-700', bg: 'bg-purple-100', order: 4 },
+    accountant: { label: 'Accountant', color: 'text-rose-700', bg: 'bg-rose-100', order: 5 },
+    receptionist: { label: 'Receptionist', color: 'text-teal-700', bg: 'bg-teal-100', order: 6 },
+};
+
+export const getRoleStyle = (role: string) => ROLE_CONFIG[role] || { label: role, color: 'text-gray-700', bg: 'bg-gray-100', order: 99 };
+
+
 // ─────────────────────────────────────────────────────────────
 // 📝 Author: Narco / Arth
 // 🔗 GitHub: https://github.com/ArthOfficial

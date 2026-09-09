@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Search, AlertCircle, Loader2, GraduationCap, BookOpen, UserPlus, X } from 'lucide-react';
+import { Plus, Search, AlertCircle, Loader2, GraduationCap, BookOpen, UserPlus, X, Users, Library } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
@@ -10,6 +10,8 @@ import { qk } from '../lib/queryKeys';
 import ClassCard from '../components/classes/ClassCard';
 import ClassFormModal from '../components/classes/ClassFormModal';
 import ClassDetailDrawer from '../components/classes/ClassDetailDrawer';
+import AllTeachersModal from '../components/classes/AllTeachersModal';
+import AllSubjectsModal from '../components/classes/AllSubjectsModal';
 
 interface ClassRow {
     id: string;
@@ -40,6 +42,8 @@ const Classes: React.FC = () => {
     const [subjectName, setSubjectName] = useState('');
     const [subjectCode, setSubjectCode] = useState('');
     const [subjectSaving, setSubjectSaving] = useState(false);
+    const [allTeachersOpen, setAllTeachersOpen] = useState(false);
+    const [allSubjectsOpen, setAllSubjectsOpen] = useState(false);
 
     const createSubject = async () => {
         if (!schoolId || !subjectName.trim()) return;
@@ -126,14 +130,20 @@ const Classes: React.FC = () => {
                         )}
                         {canQuickCreate && (
                             <>
-                                <button onClick={() => setSubjectOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary">
+                                <button onClick={() => setSubjectOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary transition-colors">
                                     <BookOpen className="w-4 h-4" /> New subject
                                 </button>
-                                <button onClick={() => navigate('/users?newUser=teacher')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary">
+                                <button onClick={() => navigate('/users?newUser=teacher')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary transition-colors">
                                     <UserPlus className="w-4 h-4" /> New teacher
                                 </button>
                             </>
                         )}
+                        <button onClick={() => setAllTeachersOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                            <Users className="w-4 h-4 text-sky-600" /> All Teachers
+                        </button>
+                        <button onClick={() => setAllSubjectsOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-bold text-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                            <Library className="w-4 h-4 text-emerald-600" /> All Subjects
+                        </button>
                     </div>
 
                     {isLoading ? (
@@ -185,6 +195,23 @@ const Classes: React.FC = () => {
                     canEdit={canEdit}
                     onEdit={() => { setEditing(selected); setSelected(null); setFormOpen(true); }}
                 />
+            )}
+
+            {schoolId && (
+                <>
+                    <AllTeachersModal
+                        open={allTeachersOpen}
+                        onClose={() => setAllTeachersOpen(false)}
+                        schoolId={schoolId}
+                        canManage={canQuickCreate || canEdit}
+                    />
+                    <AllSubjectsModal
+                        open={allSubjectsOpen}
+                        onClose={() => setAllSubjectsOpen(false)}
+                        schoolId={schoolId}
+                        canEdit={canEdit}
+                    />
+                </>
             )}
         </div>
     );

@@ -5,6 +5,7 @@ import { Plus, Trash2, BookOpen } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { qk } from '../../../lib/queryKeys';
 import { EmptyState } from '../shared';
+import { fetchSchoolTeachers } from '../../../hooks/queries';
 
 interface Props { classId: string; schoolId: string; canEdit: boolean; }
 
@@ -20,12 +21,12 @@ const TeachersSubjectsTab: React.FC<Props> = ({ classId, schoolId, canEdit }) =>
             const [assign, subs, ts, classInfo] = await Promise.all([
                 supabase.from('subject_teachers').select('id, subject_id, teacher_id, subjects:subject_id(name, code), profiles:teacher_id(full_name)').eq('class_id', classId),
                 supabase.from('subjects').select('id, name, code').eq('school_id', schoolId).is('deleted_at', null).limit(200),
-                supabase.from('profiles').select('id, full_name').eq('school_id', schoolId).eq('role', 'teacher').limit(200),
+                fetchSchoolTeachers(schoolId),
                 supabase.from('classes').select('teacher_id, teacher:teacher_id(full_name)').eq('id', classId).single(),
             ]);
             if (assign.error) throw assign.error;
             if (classInfo.error) throw classInfo.error;
-            return { assignments: assign.data ?? [], subjects: subs.data ?? [], teachers: ts.data ?? [], classTeacher: classInfo.data };
+            return { assignments: assign.data ?? [], subjects: subs.data ?? [], teachers: ts, classTeacher: classInfo.data };
         },
     });
 
@@ -73,7 +74,11 @@ const TeachersSubjectsTab: React.FC<Props> = ({ classId, schoolId, canEdit }) =>
                         </select>
                         <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="clay-input px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm">
                             <option value="">— Teacher —</option>
-                            {data?.teachers.map(t => <option key={t.id} value={t.id}>{t.full_name || t.id.slice(0, 8)}</option>)}
+                            {data?.teachers.map(t => (
+                                <option key={t.id} value={t.id}>
+                                    {t.full_name || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' ? ` (${t.role} • teacher tag)` : ''}
+                                </option>
+                            ))}
                         </select>
                         <button onClick={() => add.mutate()} disabled={add.isPending} className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold shadow-md hover:opacity-90 disabled:opacity-50">
                             <Plus className="w-4 h-4" /> Add
