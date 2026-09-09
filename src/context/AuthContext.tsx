@@ -88,10 +88,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ...(((rolesData ?? []) as string[]).map(r => r as UserRole)),
             ]));
             setRoles(allRoles);
-            setRole(profile.role);
+            let effectiveActiveRole = profile.role;
+            try {
+                const storedRole = localStorage.getItem(`active_role_${supaUser.id}`) as UserRole | null;
+                if (storedRole && allRoles.includes(storedRole)) {
+                    effectiveActiveRole = storedRole;
+                }
+            } catch { /* ignore */ }
+            setRole(effectiveActiveRole);
             if (shouldLog) {
                 await logger.info('auth', 'Session restored', {
-                    details: { email: supaUser.email, role: profile.role, roles: allRoles },
+                    details: { email: supaUser.email, role: effectiveActiveRole, roles: allRoles },
                     userId: supaUser.id
                 });
             }
@@ -333,9 +340,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    const switchDashboardRole = useCallback((nextRole: Extract<UserRole, 'student' | 'parent'>) => {
-        if (roles.includes(nextRole)) setRole(nextRole);
-    }, [roles]);
+    const switchDashboardRole = useCallback((nextRole: UserRole) => {
+        if (roles.includes(nextRole)) {
+            setRole(nextRole);
+            try {
+                if (user?.id) {
+                    localStorage.setItem(`active_role_${user.id}`, nextRole);
+                }
+            } catch { /* ignore */ }
+        }
+    }, [roles, user?.id]);
 
     const hideToast = () => setToast({ ...toast, show: false });
 

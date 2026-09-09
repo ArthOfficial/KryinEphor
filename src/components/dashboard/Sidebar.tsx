@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined, ArrowLeftRight } from 'lucide-react';
 import {
     LayoutDashboard,
     Users,
@@ -18,16 +18,17 @@ import {
     CheckSquare,
     Database as DatabaseIcon
 } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { DASHBOARD_ROUTES } from '../../config/roles';
+import { DASHBOARD_ROUTES, getRoleStyle } from '../../config/roles';
 
 interface SidebarProps {
     activePage?: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
-    const { user, role, roles, signOut, isTransitioning } = useAuth();
+    const { user, role, roles, signOut, isTransitioning, switchDashboardRole } = useAuth();
+    const navigate = useNavigate();
     const location = useLocation();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -76,34 +77,72 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
         'ChartNoAxesCombined': ChartNoAxesCombined
     };
 
-    const effectiveRoles = roles.length > 0 ? roles : (role ? [role] : []);
+    const activeRole = role || (roles.length > 0 ? roles[0] : null);
     const allowedRoutes = DASHBOARD_ROUTES.filter(route =>
-        route.roles.some(r => effectiveRoles.includes(r))
+        activeRole ? route.roles.includes(activeRole) : false
     );
 
-    // Group routes for UI
-    const menuGroups = [
-        {
-            title: "Main Menu",
-            items: allowedRoutes.filter(r => ['Dashboard', 'Database', 'Users'].includes(r.label))
-        },
-        {
-            title: "Academics",
-            items: [...allowedRoutes.filter(r => ['Classes', 'Attendance'].includes(r.label)), ...(effectiveRoles.some(value => value === 'admin' || value === 'teacher') ? [{ path: '/manage-tests', label: 'Tests', icon: 'FileText' }, { path: '/marks', label: 'Marks', icon: 'ClipboardPenLine' }] : [])]
-        },
-        {
-            title: "Operations",
-            items: allowedRoutes.filter(r => ['Finance', 'School Finance'].includes(r.label))
-        },
-        {
-            title: "System",
-            items: allowedRoutes.filter(r => ['System Alerts', 'Global Setup'].includes(r.label))
-        },
-        {
-            title: "Extras",
-            items: effectiveRoles.some(value => value === 'student' || value === 'parent') ? [{ path: '/fees', label: 'Fees', icon: 'Coins' }, { path: '/tests', label: 'Tests', icon: 'FileText' }, { path: '/performance', label: 'Performance', icon: 'ChartNoAxesCombined' }, ...(effectiveRoles.includes('student') ? [{ path: '/focus', label: 'Focus Mode', icon: 'TimerReset' }] : [])] : []
+    // Group routes for UI strictly by active role
+    const menuGroups = (() => {
+        if (activeRole === 'student') {
+            return [
+                {
+                    title: "Overview",
+                    items: allowedRoutes.filter(r => r.label === 'Dashboard')
+                },
+                {
+                    title: "Student Portal",
+                    items: [
+                        { path: '/fees', label: 'Fees', icon: 'Coins' },
+                        { path: '/tests', label: 'Tests', icon: 'FileText' },
+                        { path: '/performance', label: 'Performance', icon: 'ChartNoAxesCombined' },
+                        { path: '/focus', label: 'Focus Mode', icon: 'TimerReset' }
+                    ]
+                }
+            ];
         }
-    ].filter(g => g.items.length > 0);
+
+        if (activeRole === 'parent') {
+            return [
+                {
+                    title: "Overview",
+                    items: allowedRoutes.filter(r => r.label === 'Dashboard')
+                },
+                {
+                    title: "Parent Portal",
+                    items: [
+                        { path: '/fees', label: 'Fees', icon: 'Coins' },
+                        { path: '/tests', label: 'Tests', icon: 'FileText' },
+                        { path: '/performance', label: 'Performance', icon: 'ChartNoAxesCombined' }
+                    ]
+                }
+            ];
+        }
+
+        return [
+            {
+                title: "Main Menu",
+                items: allowedRoutes.filter(r => ['Dashboard', 'Database', 'Users'].includes(r.label))
+            },
+            {
+                title: "Academics",
+                items: [
+                    ...allowedRoutes.filter(r => ['Classes', 'Attendance'].includes(r.label)),
+                    ...(activeRole === 'admin' || activeRole === 'teacher'
+                        ? [{ path: '/manage-tests', label: 'Tests', icon: 'FileText' }, { path: '/marks', label: 'Marks', icon: 'ClipboardPenLine' }]
+                        : [])
+                ]
+            },
+            {
+                title: "Operations",
+                items: allowedRoutes.filter(r => ['Finance', 'School Finance'].includes(r.label))
+            },
+            {
+                title: "System",
+                items: allowedRoutes.filter(r => ['System Alerts', 'Global Setup'].includes(r.label))
+            }
+        ].filter(g => g.items.length > 0);
+    })();
 
     return (
         <>
@@ -193,6 +232,78 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
                 </nav>
 
                 <div className={`mt-auto ${collapsed ? 'p-3 lg:px-2' : 'p-6'} border-t border-gray-100`}>
+                    {/* Role Switcher for Multi-role Accounts (e.g. Student <-> Parent or general multi-role) */}
+                    {roles.length > 1 && (
+                        <div className="mb-3">
+                            {roles.includes('student') && roles.includes('parent') && roles.length === 2 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const next = activeRole === 'student' ? 'parent' : 'student';
+                                        switchDashboardRole(next);
+                                        if (!['/dashboard', '/fees', '/tests', '/performance'].includes(location.pathname)) {
+                                            navigate('/dashboard');
+                                        }
+                                    }}
+                                    title={activeRole === 'student' ? 'Switch to Parent View' : 'Switch to Student View'}
+                                    className={`w-full flex items-center ${collapsed ? 'justify-center p-2' : 'justify-between px-3 py-2'} rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-teal-500/15 border border-teal-500/25 text-teal-900 hover:from-teal-500/20 hover:to-teal-500/25 hover:border-teal-500/50 hover:shadow-sm transition-all active:scale-[0.98] group`}
+                                >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <div className="w-6 h-6 rounded-lg bg-teal-600/15 flex items-center justify-center text-teal-700 shrink-0 group-hover:rotate-180 transition-transform duration-300">
+                                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                                        </div>
+                                        {!collapsed && (
+                                            <span className="text-xs font-bold truncate">
+                                                {activeRole === 'student' ? 'Switch to Parent' : 'Switch to Student'}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {!collapsed && (
+                                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-white text-teal-800 border border-teal-200 shrink-0 shadow-xs">
+                                            {activeRole === 'student' ? 'Parent' : 'Student'}
+                                        </span>
+                                    )}
+                                </button>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    {!collapsed && (
+                                        <div className="flex items-center justify-between px-1">
+                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted">Switch Role</span>
+                                            <span className="text-[9px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100">
+                                                {roles.length} roles
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className={`flex ${collapsed ? 'flex-col gap-1' : 'flex-wrap gap-1'}`}>
+                                        {roles.map((r) => {
+                                            const isCurrent = r === activeRole;
+                                            const rStyle = getRoleStyle(r);
+                                            return (
+                                                <button
+                                                    key={r}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        switchDashboardRole(r);
+                                                        if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname) && (r === 'student' || r === 'parent')) {
+                                                            navigate('/dashboard');
+                                                        }
+                                                    }}
+                                                    title={`Switch view to ${rStyle.label}`}
+                                                    className={`text-xs font-bold rounded-xl transition-all ${collapsed ? 'w-8 h-8 flex items-center justify-center' : 'px-2.5 py-1.5 flex-1 min-w-[65px] text-center'} ${
+                                                        isCurrent
+                                                            ? 'bg-primary text-white shadow-sm shadow-teal-900/20'
+                                                            : 'bg-white/80 hover:bg-white text-stone-600 border border-stone-200/70 hover:border-teal-300'
+                                                    }`}
+                                                >
+                                                    {collapsed ? r.charAt(0).toUpperCase() : rStyle.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div className={`clay-card ${collapsed ? 'p-2 lg:justify-center' : 'p-4'} flex items-center gap-3 relative overflow-hidden group`}>
                         <div className="relative shrink-0">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-stone-800 to-stone-600 flex items-center justify-center text-white font-bold shadow-md">

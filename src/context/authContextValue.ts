@@ -25,7 +25,7 @@ export interface AuthContextType {
     transition: TransitionState;
     setTransitioning: (val: boolean) => void;
     setTransition: (val: TransitionState) => void;
-    switchDashboardRole: (role: Extract<UserRole, 'student' | 'parent'>) => void;
+    switchDashboardRole: (role: UserRole) => void;
     login: (email: string, password: string) => Promise<UserRole>;
     signOut: () => Promise<void>;
     toast: { show: boolean; message: string };

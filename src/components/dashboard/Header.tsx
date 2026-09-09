@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu } from 'lucide-react';
+import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu, ArrowLeftRight } from 'lucide-react';
 import NotificationsBell from './NotificationsBell';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { DASHBOARD_ROUTES } from '../../config/roles';
 import type { LucideIcon } from 'lucide-react';
@@ -22,8 +22,9 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
-    const { role, user } = useAuth();
+    const { role, roles, user, switchDashboardRole } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const searchRef = useRef<HTMLDivElement>(null);
@@ -137,7 +138,26 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
                 <Menu className="h-5 w-5" />
             </button>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+                {/* Switch button for Student/Parent */}
+                {roles.includes('student') && roles.includes('parent') && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const next = role === 'student' ? 'parent' : 'student';
+                            switchDashboardRole(next);
+                            if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname)) {
+                                navigate('/dashboard');
+                            }
+                        }}
+                        title={`Switch to ${role === 'student' ? 'Parent' : 'Student'} View`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-teal-50 to-emerald-50 text-teal-800 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                    >
+                        <ArrowLeftRight className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span className="hidden sm:inline">Switch to {role === 'student' ? 'Parent' : 'Student'}</span>
+                        <span className="sm:hidden">{role === 'student' ? 'Parent' : 'Student'}</span>
+                    </button>
+                )}
                 {(() => {
                     const roleLabelMap: Record<string, string> = {
                         superadmin: 'Super Admin',

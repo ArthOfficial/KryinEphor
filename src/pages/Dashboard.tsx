@@ -295,7 +295,7 @@ const Dashboard: React.FC = () => {
                         <div className="relative z-10 w-full md:w-auto">
                             <h1 className="text-3xl font-bold text-foreground mb-1">{greeting()}, {userName}! 👋</h1>
                             <p className="text-muted">
-                                {role === 'admin' ? 'Live snapshot of your school today.' : role === 'student' ? 'Track your learning, attendance, and school updates.' : "Here's an overview of your workspace."}
+                                {role === 'admin' ? 'Live snapshot of your school today.' : role === 'student' ? 'Track your learning, attendance, and school updates.' : role === 'parent' ? 'Track your ward’s attendance, fees, performance, and updates.' : "Here's an overview of your workspace."}
                             </p>
                         </div>
                         <div className="relative z-10 flex w-full items-end justify-between gap-4 md:w-auto md:flex-col md:items-end md:justify-start">
@@ -318,14 +318,15 @@ const Dashboard: React.FC = () => {
                         <div className="absolute -top-20 -right-20 w-64 h-64 bg-teal-100 rounded-full blur-3xl opacity-50"></div>
                     </div>
 
-                    {role === 'student' && user && <StudentDashboardExperience
+                    {(role === 'student' || role === 'parent') && user && <StudentDashboardExperience
                         studentId={user.id}
                         schoolId={user.schoolId ?? null}
                         feed={activity}
                         isFeedLoading={activityQuery.isLoading}
+                        isParentView={role === 'parent'}
                     />}
 
-                    {role !== 'student' && <>
+                    {role !== 'student' && role !== 'parent' && <>
                     {/* KPI Grid — REAL data */}
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 animate-fade-up delay-100">
                         <KPI icon={Users} title={loading ? '—' : (stats?.students ?? 0).toLocaleString()} subtitle="Students" />
