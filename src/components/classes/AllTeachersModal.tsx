@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Search, X, Mail, BookOpen, GraduationCap, UserPlus, Shield, Sparkles } from 'lucide-react';
+import { Users, Search, X, Mail, BookOpen, GraduationCap, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useSchoolTeachers } from '../../hooks/queries';
@@ -180,7 +180,6 @@ const AllTeachersModal: React.FC<Props> = ({ open, onClose, schoolId, canManage 
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {filteredTeachers.map((teacher) => {
-                                    const primaryRoleStyle = getRoleStyle(teacher.role);
                                     const isCurrentUser = currentUser?.id === teacher.id;
                                     const classTeacherOf = assignmentsData?.classTeacherMap?.get(teacher.id) || [];
                                     const subjectsTaught = assignmentsData?.subjectsMap?.get(teacher.id) || [];

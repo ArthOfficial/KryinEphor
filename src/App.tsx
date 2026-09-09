@@ -126,7 +126,7 @@ function AppContent() {
             </ProtectedRoute>
           } />
           <Route path="/classes" element={
-            <ProtectedRoute allowedRoles={['admin', 'teacher', 'receptionist', 'accountant']}>
+            <ProtectedRoute allowedRoles={['superadmin', 'admin', 'teacher', 'receptionist', 'accountant']}>
               <PageTransition><Classes /></PageTransition>
             </ProtectedRoute>
           } />

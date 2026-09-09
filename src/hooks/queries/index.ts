@@ -12,8 +12,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
+import { qk as centralQk } from '../../lib/queryKeys';
+
 // ── keys ─────────────────────────────────────────────────────────────────────
 export const qk = {
+    ...centralQk,
     schoolsSummary: ['schools-summary'] as const,
     adminDashboardStats: ['admin-dashboard-stats'] as const,
     superAdminMetrics: ['super-admin-metrics'] as const,

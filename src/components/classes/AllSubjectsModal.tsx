@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Search, X, Plus, GraduationCap, Users, Sparkles, Layers, Check } from 'lucide-react';
+import { BookOpen, Search, X, Plus, GraduationCap, Users, Check } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { qk } from '../../lib/queryKeys';

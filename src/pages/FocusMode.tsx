@@ -1,5 +1,5 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, Expand, ImagePlus, Music2, Pause, Play, RotateCcw, Settings2, TimerReset, Upload, Volume2, VolumeX, X } from 'lucide-react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ChevronDown, Expand, ImagePlus, Music2, Pause, Play, RotateCcw, Settings2, Upload, Volume2, VolumeX, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type TimerFont = 'mono' | 'serif' | 'sans' | 'rounded' | 'display' | 'classic' | 'notebook' | 'casual' | 'script' | 'marker' | 'typewriter' | 'terminal' | 'elegant' | 'schoolbook' | 'hand';
