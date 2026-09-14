@@ -183,7 +183,7 @@ const AllTeachersModal: React.FC<Props> = ({ open, onClose, schoolId, canManage 
                                     const isCurrentUser = currentUser?.id === teacher.id;
                                     const classTeacherOf = assignmentsData?.classTeacherMap?.get(teacher.id) || [];
                                     const subjectsTaught = assignmentsData?.subjectsMap?.get(teacher.id) || [];
-                                    const allRoles = teacher.roles && teacher.roles.length > 0 ? teacher.roles : [teacher.role];
+                                    const allRoles = (teacher.roles && teacher.roles.length > 0 ? teacher.roles : [teacher.role]).filter(r => r !== 'student');
 
                                     return (
                                         <div

@@ -76,7 +76,7 @@ const TeachersSubjectsTab: React.FC<Props> = ({ classId, schoolId, canEdit }) =>
                             <option value="">— Teacher —</option>
                             {data?.teachers.map(t => (
                                 <option key={t.id} value={t.id}>
-                                    {t.full_name || t.email?.split('@')[0] || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' ? ` (${t.role.charAt(0).toUpperCase() + t.role.slice(1)} • Teacher)` : ''}
+                                    {t.full_name || t.email?.split('@')[0] || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' && t.role !== 'student' ? ` (${t.role.charAt(0).toUpperCase() + t.role.slice(1)} · Teacher)` : ''}
                                 </option>
                             ))}
                         </select>

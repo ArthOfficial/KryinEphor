@@ -235,18 +235,27 @@ export interface SchoolTeacherOption {
     roles?: string[];
     avatar_url?: string | null;
     is_active?: boolean | null;
+    staff_name?: string | null;
+    designation?: string | null;
 }
 
 export async function fetchSchoolTeachers(schoolId: string): Promise<SchoolTeacherOption[]> {
     if (!schoolId) return [];
 
-    const [primaryTeachersRes, additionalRolesRes] = await Promise.all([
+    // Query active staff memberships, teacher profiles, and user_roles in parallel
+    const [staffRes, primaryTeachersRes, additionalRolesRes] = await Promise.all([
+        supabase
+            .from('employees')
+            .select('id, profile_id, school_id, designation, department, status, staff_person_name')
+            .eq('school_id', schoolId)
+            .eq('status', 'active')
+            .is('deleted_at', null),
         supabase
             .from('profiles')
             .select('id, full_name, email, role, avatar_url, is_active')
             .eq('school_id', schoolId)
-            .eq('role', 'teacher')
             .is('deleted_at', null)
+            .eq('role', 'teacher')
             .limit(300),
         supabase
             .from('user_roles')
@@ -255,23 +264,71 @@ export async function fetchSchoolTeachers(schoolId: string): Promise<SchoolTeach
     ]);
 
     const teacherMap = new Map<string, SchoolTeacherOption>();
+    const teacherUserRoleSet = new Set((additionalRolesRes.data ?? []).map(r => r.user_id));
+    const staffByProfileId = new Map<string, { staff_person_name: string | null; designation: string | null }>();
 
-    (primaryTeachersRes.data ?? []).forEach(p => {
-        teacherMap.set(p.id, {
-            id: p.id,
-            full_name: p.full_name,
-            email: p.email,
-            role: p.role,
-            roles: [p.role],
-            avatar_url: p.avatar_url,
-            is_active: p.is_active,
+    (staffRes.data ?? []).forEach(emp => {
+        staffByProfileId.set(emp.profile_id, {
+            staff_person_name: emp.staff_person_name,
+            designation: emp.designation,
         });
     });
 
-    const extraUserIds = (additionalRolesRes.data ?? [])
-        .map(r => r.user_id)
-        .filter(uid => !teacherMap.has(uid));
+    // 1. Process staff records with teaching capacity
+    if (staffByProfileId.size > 0) {
+        const staffProfileIds = Array.from(staffByProfileId.keys());
+        const { data: staffProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, role, avatar_url, is_active')
+            .eq('school_id', schoolId)
+            .in('id', staffProfileIds)
+            .is('deleted_at', null);
 
+        (staffProfiles ?? []).forEach(p => {
+            if (p.is_active === false) return;
+            const staff = staffByProfileId.get(p.id);
+            const isTeacher =
+                p.role === 'teacher' ||
+                teacherUserRoleSet.has(p.id) ||
+                (staff?.designation?.toLowerCase().includes('teacher') ?? true);
+
+            if (isTeacher) {
+                const canonicalName = staff?.staff_person_name?.trim() || p.full_name?.trim() || p.email?.split('@')[0] || 'Teacher';
+                teacherMap.set(p.id, {
+                    id: p.id,
+                    full_name: canonicalName,
+                    email: p.email,
+                    role: p.role === 'student' ? 'teacher' : p.role,
+                    roles: Array.from(new Set([p.role, 'teacher'])).filter(r => r !== 'student'),
+                    avatar_url: p.avatar_url,
+                    is_active: p.is_active,
+                    staff_name: canonicalName,
+                    designation: staff?.designation || 'Teacher',
+                });
+            }
+        });
+    }
+
+    // 2. Add primary teacher profiles (fallback / existing accounts)
+    (primaryTeachersRes.data ?? []).forEach(p => {
+        if (teacherMap.has(p.id) || p.is_active === false) return;
+        const staff = staffByProfileId.get(p.id);
+        const canonicalName = staff?.staff_person_name?.trim() || p.full_name?.trim() || p.email?.split('@')[0] || 'Teacher';
+        teacherMap.set(p.id, {
+            id: p.id,
+            full_name: canonicalName,
+            email: p.email,
+            role: 'teacher',
+            roles: ['teacher'],
+            avatar_url: p.avatar_url,
+            is_active: p.is_active,
+            staff_name: canonicalName,
+            designation: staff?.designation || 'Teacher',
+        });
+    });
+
+    // 3. Add profiles with additional 'teacher' role in user_roles (strictly excluding pure students without staff records)
+    const extraUserIds = Array.from(teacherUserRoleSet).filter(uid => !teacherMap.has(uid));
     if (extraUserIds.length > 0) {
         const { data: extraProfiles } = await supabase
             .from('profiles')
@@ -282,14 +339,19 @@ export async function fetchSchoolTeachers(schoolId: string): Promise<SchoolTeach
             .is('deleted_at', null);
 
         (extraProfiles ?? []).forEach(p => {
+            if (p.is_active === false) return;
+            const staff = staffByProfileId.get(p.id);
+            const canonicalName = staff?.staff_person_name?.trim() || p.full_name?.trim() || p.email?.split('@')[0] || 'Teacher';
             teacherMap.set(p.id, {
                 id: p.id,
-                full_name: p.full_name,
+                full_name: canonicalName,
                 email: p.email,
                 role: p.role,
-                roles: [p.role, 'teacher'],
+                roles: Array.from(new Set([p.role, 'teacher'])).filter(r => r !== 'student'),
                 avatar_url: p.avatar_url,
                 is_active: p.is_active,
+                staff_name: canonicalName,
+                designation: staff?.designation || 'Teacher',
             });
         });
     }

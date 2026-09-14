@@ -491,59 +491,17 @@ Do not continue to the next phase if the current phase leaves broken authorizati
 
 # PHASE 2 — CORRECT TEACHER IDENTITY
 
-Fix Teacher handling.
+**Status**: ✅ Completed
 
-Teacher options must come from valid active staff identities.
-
-A person should appear in Teacher selection only if all required conditions hold:
-
-```text
-
-active staff membership
-
-AND teacher capability
-
-AND same school
-
-AND not deleted
-
-AND allowed to teach
-
-```
-
-Do NOT simply query:
-
-```text
-
-any profile containing "teacher" in user_roles
-
-```
-
-as the sole criterion.
-
-Update:
-
-* teacher dropdowns
-
-* class teacher selectors
-
-* subject teacher selectors
-
-* teacher assignment queries
-
-* teacher counts if necessary
-
-so they reference the staff identity and staff name.
-
-Fix the existing:
-
-```text
-
-student (student • teacher tag)
-
-```
-
-problem at its ROOT, not merely through nicer string formatting.
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260914233500_phase2_correct_teacher_identity.sql`.
+- [x] **Database Assignment Triggers**: Created `trg_validate_class_teacher` on `classes` and `trg_validate_subject_teacher` on `subject_teachers` preventing assignment of deleted, inactive, cross-tenant, or unprivileged non-staff users as teachers.
+- [x] **Authoritative Teacher Query**: Updated `fetchSchoolTeachers` in `src/hooks/queries/index.ts` to query active `employees` staff memberships, prioritizing canonical `staff_person_name`, and strictly excluding pure students without staff memberships.
+- [x] **Class Teacher Selector**: Updated `ClassFormModal.tsx` dropdown to use canonical staff names and sanitize roles, completely eliminating any student role tags.
+- [x] **Subject Teacher Selector**: Updated `TeachersSubjectsTab.tsx` dropdown to use canonical staff names and sanitize roles.
+- [x] **Teacher Directory Cards**: Updated `AllTeachersModal.tsx` to filter out student persona badges from teacher cards.
+- [x] **Admin Dashboard Stats**: Updated `fn_admin_dashboard_stats` to count active staff educators accurately while excluding non-staff students.
+- [x] **Build Verification**: Verified `npm run build` succeeds with 0 type errors.
 
 ---
 
