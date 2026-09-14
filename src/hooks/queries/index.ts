@@ -278,6 +278,7 @@ export async function fetchSchoolTeachers(schoolId: string): Promise<SchoolTeach
             .select('id, full_name, email, role, avatar_url, is_active')
             .eq('school_id', schoolId)
             .in('id', extraUserIds)
+            .neq('role', 'student')
             .is('deleted_at', null);
 
         (extraProfiles ?? []).forEach(p => {

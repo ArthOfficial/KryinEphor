@@ -125,7 +125,7 @@ const ClassFormModal: React.FC<Props> = ({ open, onClose, schoolId, editing }) =
                         <option value="">— None —</option>
                         {teachers.map((t) => (
                             <option key={t.id} value={t.id}>
-                                {t.full_name || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' ? ` (${t.role} • teacher tag)` : ''}
+                                {t.full_name || t.email?.split('@')[0] || t.id.slice(0, 8)}{t.role && t.role !== 'teacher' ? ` (${t.role.charAt(0).toUpperCase() + t.role.slice(1)} • Teacher)` : ''}
                             </option>
                         ))}
                     </select>
