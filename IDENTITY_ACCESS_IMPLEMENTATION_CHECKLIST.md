@@ -507,6 +507,22 @@ Do not continue to the next phase if the current phase leaves broken authorizati
 
 # PHASE 3 — ADD TEACHER TO AN EXISTING FAMILY/STUDENT ACCOUNT
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260914235000_phase3_add_teacher_to_family.sql`.
+- [x] **Safe Account Search RPC (`fn_search_school_accounts_for_staff`)**: Created security-definer RPC allowing school admins to search accounts in their tenant by name, email, or linked student name. Aggregates candidate account roles and linked family students (`student_id`, `student_name`, `class_name`, `relationship`), with existing staff profiles.
+- [x] **Edge Function `update_admin`**: Extended to accept adult educator identity attributes (`staffPersonName`, `designation`, `department`). When teacher role is added or updated, upserts an active `employees` record with tenant isolation and audit logging.
+- [x] **Edge Function `create_tenant_admin`**: Extended to create corresponding `employees` records when a new teacher is created with optional staff details.
+- [x] **Add User Modal UI Enhancement**:
+  - Segmented toggle when selecting Teacher role: `New Account` vs `Attach to Family Account`.
+  - In `Attach to Family Account` mode: live tenant-scoped account search with debounce, candidate cards displaying email, current roles, and linked students (`🎓 Aarav Sharma (Class 5A) · Mother`).
+  - Adult staff member setup section requiring the educator's real name (`Sunita Sharma`), designation, and department, preserving family student records without modification.
+  - "Attach Teacher Access" action invoking `update_admin` with role merge and staff profile creation.
+- [x] **UserDrawer Staff Management**: Allows viewing and updating the educator's `staff_person_name`, designation, and department for any teacher or staff member.
+- [x] **TypeScript Types**: Updated `src/integrations/supabase/types.ts` with `fn_search_school_accounts_for_staff` schema.
+- [x] **Build Verification**: Verified `npm run build` succeeds with 0 errors.
+
 This is a critical workflow.
 
 Example:
@@ -525,7 +541,7 @@ Aarav's mother Sunita becomes a Teacher.
 
 ```
 
-Admin/Superadmin should be able to choose:
+Admin/Superadmin can choose:
 
 ```text
 
@@ -535,7 +551,7 @@ Add Staff / Teacher
 
 ```
 
-Search may use safe school-scoped identifiers such as:
+Search uses safe school-scoped identifiers such as:
 
 * verified email
 
@@ -547,9 +563,9 @@ Search may use safe school-scoped identifiers such as:
 
 * student/guardian relationship
 
-Do NOT automatically select the student record as the teacher.
+Does NOT automatically select the student record as the teacher.
 
-If the existing account represents a family/student account, show something similar to:
+If the existing account represents a family/student account, shows:
 
 ```text
 
@@ -569,19 +585,7 @@ Add Sunita Sharma as staff?
 
 ```
 
-If guardian identity data does not yet exist in structured form, Admin must explicitly enter/select the adult Teacher's information.
-
-DO NOT silently assume:
-
-```text
-
-profile.full_name == teacher name
-
-```
-
-because an existing family login may currently contain the student's name.
-
-Create/reuse:
+Creates/reuses:
 
 ```text
 

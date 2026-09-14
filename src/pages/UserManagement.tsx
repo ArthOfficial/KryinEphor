@@ -89,8 +89,9 @@ const UserDrawer: React.FC<{
     const [editEmailLocal, setEditEmailLocal] = useState(''); // local part when domain is locked
     const [isActive, setIsActive] = useState(true);
     const [additionalRoles, setAdditionalRoles] = useState<string[]>([]);
-
-
+    const [editStaffPersonName, setEditStaffPersonName] = useState('');
+    const [editDesignation, setEditDesignation] = useState('');
+    const [editDepartment, setEditDepartment] = useState('');
 
     const [newPass, setNewPass] = useState('');
     const [saving, setSaving] = useState(false);
@@ -109,7 +110,6 @@ const UserDrawer: React.FC<{
 
     // permsByCategory removed with permissions UI
 
-
     useEffect(() => {
         if (user) {
             setEditRole(user.role || '');
@@ -124,12 +124,31 @@ const UserDrawer: React.FC<{
             setErrorMsg('');
             setAdditionalRoles(user.roles ? user.roles.filter(r => r && r !== user.role) : []);
             setEditingName(false);
+            setEditStaffPersonName('');
+            setEditDesignation('');
+            setEditDepartment('');
+
             // Fetch this user's assigned roles (primary + additional) via secure RPC.
             (async () => {
                 const { data, error } = await supabase.rpc('fn_get_user_roles', { _target_user_id: user.id });
                 if (!error && Array.isArray(data)) {
                     const primary = user.role;
                     setAdditionalRoles((data as string[]).filter(r => r && r !== primary));
+                }
+            })();
+
+            // Fetch existing employee/staff profile if any
+            (async () => {
+                const { data } = await supabase
+                    .from('employees')
+                    .select('staff_person_name, designation, department')
+                    .eq('profile_id', user.id)
+                    .is('deleted_at', null)
+                    .maybeSingle();
+                if (data) {
+                    setEditStaffPersonName(data.staff_person_name || '');
+                    setEditDesignation(data.designation || '');
+                    setEditDepartment(data.department || '');
                 }
             })();
         }
@@ -168,6 +187,11 @@ const UserDrawer: React.FC<{
                 body.metadataPermissions = user.metadata?.permissions ?? [];
                 body.additionalRoles = additionalRoles;
                 if (composedEmail && composedEmail !== user.email) body.email = composedEmail;
+                if (editRole === 'teacher' || additionalRoles.includes('teacher')) {
+                    body.staffPersonName = editStaffPersonName.trim() || editFullName.trim() || user.full_name || 'Teacher';
+                    body.designation = editDesignation.trim();
+                    body.department = editDepartment.trim();
+                }
             }
 
             const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
@@ -449,6 +473,51 @@ const UserDrawer: React.FC<{
                                             Grant extra roles on top of the primary one — e.g. a teacher who also handles reception.
                                         </p>
                                     </div>
+
+                                    {/* Teacher / Staff Identity Details */}
+                                    {(editRole === 'teacher' || additionalRoles.includes('teacher')) && (
+                                        <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <GraduationCap className="w-4 h-4 text-amber-800" />
+                                                <span className="text-xs font-bold uppercase tracking-wider text-amber-900">Teacher / Staff Identity</span>
+                                            </div>
+                                            <p className="text-[11px] text-amber-800/80 leading-relaxed">
+                                                Adult educator identity used on class timetables, subject assignments, and teacher directories. Preserves family and student names.
+                                            </p>
+                                            <div>
+                                                <label className="text-xs font-semibold text-stone-700 block mb-1">Staff Member Full Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={editStaffPersonName}
+                                                    onChange={e => setEditStaffPersonName(e.target.value)}
+                                                    placeholder={editFullName || "e.g. Sunita Sharma"}
+                                                    className="clay-input w-full text-sm bg-white"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editDesignation}
+                                                        onChange={e => setEditDesignation(e.target.value)}
+                                                        placeholder="e.g. Senior Teacher"
+                                                        className="clay-input w-full text-sm bg-white"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editDepartment}
+                                                        onChange={e => setEditDepartment(e.target.value)}
+                                                        placeholder="e.g. Mathematics"
+                                                        className="clay-input w-full text-sm bg-white"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -884,6 +953,27 @@ const DeleteUserConfirmModal: React.FC<{
     );
 };
 
+/* ─── STAFF CANDIDATE TYPE ───────────────────────────────── */
+interface StaffSearchCandidate {
+    account_id: string;
+    email: string;
+    full_name: string;
+    primary_role: string;
+    roles: string[];
+    is_active: boolean;
+    linked_students: Array<{
+        student_id: string;
+        student_name: string;
+        class_name: string | null;
+        relationship: string;
+        is_primary: boolean;
+    }>;
+    has_teacher_role: boolean;
+    staff_person_name: string | null;
+    designation: string | null;
+    department: string | null;
+}
+
 /* ─── ADD USER MODAL ────────────────────────────────────── */
 const AddUserModal: React.FC<{
     isOpen: boolean;
@@ -906,6 +996,21 @@ const AddUserModal: React.FC<{
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+
+    // Teacher-specific workflow: 'new' vs 'attach_family'
+    const [teacherMode, setTeacherMode] = useState<'new' | 'attach_family'>('new');
+    const [teacherStaffName, setTeacherStaffName] = useState('');
+    const [teacherDesignation, setTeacherDesignation] = useState('');
+    const [teacherDepartment, setTeacherDepartment] = useState('');
+
+    // Attach to existing family account state
+    const [familySearchQuery, setFamilySearchQuery] = useState('');
+    const [familySearchResults, setFamilySearchResults] = useState<StaffSearchCandidate[]>([]);
+    const [isSearchingFamily, setIsSearchingFamily] = useState(false);
+    const [selectedFamilyAccount, setSelectedFamilyAccount] = useState<StaffSearchCandidate | null>(null);
+    const [attachStaffPersonName, setAttachStaffPersonName] = useState('');
+    const [attachDesignation, setAttachDesignation] = useState('Teacher');
+    const [attachDepartment, setAttachDepartment] = useState('');
 
     // Recovery-email flow (after user is created)
     const [createdUserId, setCreatedUserId] = useState<string>('');
@@ -946,11 +1051,48 @@ const AddUserModal: React.FC<{
             setRecoveryVerified(false); setOtp('');
             setRecError(''); setRecInfo('');
             setSendStatus('idle'); setExpiresAt(0);
+            setTeacherMode('new');
+            setTeacherStaffName('');
+            setTeacherDesignation('');
+            setTeacherDepartment('');
+            setFamilySearchQuery('');
+            setFamilySearchResults([]);
+            setSelectedFamilyAccount(null);
+            setAttachStaffPersonName('');
+            setAttachDesignation('Teacher');
+            setAttachDepartment('');
         }
     }, [isOpen, isSuperadmin, myschoolId, initialRole]);
 
     // Clear email fields when switching schools with/without a domain
     useEffect(() => { setEmail(''); setEmailLocal(''); }, [schoolId]);
+
+    // Live search for existing family accounts when in attach mode
+    useEffect(() => {
+        if (!isOpen || role !== 'teacher' || teacherMode !== 'attach_family') return;
+        const targetSchool = schoolId || myschoolId;
+        if (!targetSchool) return;
+
+        const timer = setTimeout(async () => {
+            setIsSearchingFamily(true);
+            try {
+                const { data, error: searchErr } = await supabase.rpc('fn_search_school_accounts_for_staff', {
+                    _school_id: targetSchool,
+                    _query: familySearchQuery.trim()
+                });
+                if (!searchErr && Array.isArray(data)) {
+                    setFamilySearchResults(data as StaffSearchCandidate[]);
+                } else {
+                    setFamilySearchResults([]);
+                }
+            } catch {
+                setFamilySearchResults([]);
+            } finally {
+                setIsSearchingFamily(false);
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [isOpen, role, teacherMode, schoolId, myschoolId, familySearchQuery]);
 
     const handleCreate = async () => {
         // Compose the effective email
@@ -974,6 +1116,11 @@ const AddUserModal: React.FC<{
         try {
             const body: Record<string, string> = { email: finalEmail, password, fullName: fullName.trim(), role };
             if (schoolId) body.schoolId = schoolId;
+            if (role === 'teacher') {
+                if (teacherStaffName.trim()) body.staffPersonName = teacherStaffName.trim();
+                if (teacherDesignation.trim()) body.designation = teacherDesignation.trim();
+                if (teacherDepartment.trim()) body.department = teacherDepartment.trim();
+            }
 
             await supabase.auth.refreshSession();
 
@@ -991,6 +1138,46 @@ const AddUserModal: React.FC<{
         }
     };
 
+    const handleAttachTeacher = async () => {
+        if (!selectedFamilyAccount) {
+            setError('Please select an existing family or student account first.');
+            return;
+        }
+        if (!attachStaffPersonName.trim()) {
+            setError("Please enter the teacher's full name (adult staff member).");
+            return;
+        }
+        setSaving(true);
+        setError('');
+        setSuccess('');
+        try {
+            await supabase.auth.refreshSession();
+            const currentRoles = selectedFamilyAccount.roles && selectedFamilyAccount.roles.length > 0
+                ? selectedFamilyAccount.roles
+                : [selectedFamilyAccount.primary_role];
+            const updatedRoles = Array.from(new Set([...currentRoles, 'teacher']));
+
+            const body: Record<string, unknown> = {
+                adminId: selectedFamilyAccount.account_id,
+                additionalRoles: updatedRoles,
+                staffPersonName: attachStaffPersonName.trim(),
+                designation: attachDesignation.trim() || 'Teacher',
+                department: attachDepartment.trim(),
+            };
+
+            const { data, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+            if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to attach teacher access'));
+            if (data?.error) throw new Error(data.error);
+
+            setSuccess(`Teacher access granted to "${attachStaffPersonName.trim()}". Account ${selectedFamilyAccount.email} can now access Teacher Mode.`);
+            onCreated();
+            setTimeout(() => onClose(), 1500);
+        } catch (err) {
+            setError((err instanceof Error ? err.message : '') || 'Failed to attach teacher access.');
+        } finally {
+            setSaving(false);
+        }
+    };
 
     const handleSendOtp = async () => {
         setRecError(''); setRecInfo('');
@@ -1041,7 +1228,6 @@ const AddUserModal: React.FC<{
         setRecInfo(''); setRecError(''); setExpiresAt(0); setSendStatus('idle');
     };
 
-
     const userCreated = Boolean(createdUserId);
 
     return (
@@ -1061,8 +1247,14 @@ const AddUserModal: React.FC<{
                             {/* Header */}
                             <div className="flex items-center justify-between px-7 pt-7 pb-5 border-b border-gray-100">
                                 <div>
-                                    <h2 className="text-xl font-bold text-foreground">Add New User</h2>
-                                    <p className="text-xs text-muted mt-0.5">Create a user account with full credentials.</p>
+                                    <h2 className="text-xl font-bold text-foreground">
+                                        {role === 'teacher' && teacherMode === 'attach_family' ? 'Attach Teacher to Family' : 'Add New User'}
+                                    </h2>
+                                    <p className="text-xs text-muted mt-0.5">
+                                        {role === 'teacher' && teacherMode === 'attach_family'
+                                            ? 'Grant staff access to an existing family or student account.'
+                                            : 'Create a user account with full credentials.'}
+                                    </p>
                                 </div>
                                 <button onClick={onClose} className="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-rose-500 transition-colors">
                                     <X className="w-4 h-4" />
@@ -1073,53 +1265,7 @@ const AddUserModal: React.FC<{
                                 {error && <div className="p-3 bg-red-50 text-red-700 text-sm font-medium rounded-xl border border-red-100">{error}</div>}
                                 {success && <div className="p-3 bg-emerald-50 text-emerald-700 text-sm font-medium rounded-xl border border-emerald-100">{success}</div>}
 
-                                <div>
-                                    <label className="text-xs font-semibold text-muted block mb-1.5">Full Name <span className="text-rose-500">*</span></label>
-                                    <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="e.g. Jane Smith" autoFocus />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold text-muted block mb-1.5">
-                                        <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Login Email <span className="text-rose-500">*</span></span>
-                                    </label>
-                                    {lockedDomain ? (
-                                        <div className="flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-primary/20">
-                                            <input
-                                                type="text"
-                                                value={emailLocal}
-                                                onChange={e => setEmailLocal(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
-                                                disabled={userCreated}
-                                                className="flex-1 px-3 py-2 text-sm outline-none disabled:opacity-60 font-mono"
-                                                placeholder="john.doe"
-                                                autoComplete="off"
-                                            />
-                                            <span className="px-3 py-2 bg-stone-50 border-l border-gray-200 text-sm text-stone-600 font-mono truncate max-w-[55%]" title={`@${lockedDomain}`}>
-                                                @{lockedDomain}
-                                            </span>
-                                        </div>
-                                    ) : isSuperadmin ? (
-                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="user@example.com" />
-                                    ) : (
-                                        <div className="clay-input w-full text-sm bg-stone-50 text-stone-500 italic cursor-not-allowed">
-                                            Email domain not configured
-                                        </div>
-                                    )}
-                                    {lockedDomain && (
-                                        <p className="text-[10px] text-muted mt-1">Full email: <span className="font-mono text-foreground">{(emailLocal || 'username')}@{lockedDomain}</span></p>
-                                    )}
-                                    {!lockedDomain && schoolId && (
-                                        <p className="text-[10px] text-amber-600 mt-1">
-                                            {isSuperadmin
-                                                ? 'This school has no email domain configured. Set one in Database → Edit school so all logins share the same subdomain.'
-                                                : 'Your school has no email domain configured yet. Ask your platform superadmin to set one before creating users.'}
-                                        </p>
-                                    )}
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold text-muted block mb-1.5">
-                                        <span className="inline-flex items-center gap-1"><Key className="w-3 h-3" /> Password <span className="text-rose-500">*</span></span>
-                                    </label>
-                                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="Minimum 6 characters" />
-                                </div>
+                                {/* Role and School Selectors */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-xs font-semibold text-muted block mb-1.5">Role <span className="text-rose-500">*</span></label>
@@ -1150,20 +1296,274 @@ const AddUserModal: React.FC<{
                                         )}
                                     </div>
                                 </div>
-                                {role && (
-                                    <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest ${ROLE_CONFIG[role]?.bg ?? 'bg-gray-100'} ${ROLE_CONFIG[role]?.color ?? 'text-gray-700'}`}>
-                                            {ROLE_CONFIG[role]?.label ?? role}
-                                        </span>
-                                        <span className="text-xs text-muted">
-                                            {schoolId ? schools.find(s => s.id === schoolId)?.name ?? 'Unknown School' : 'Platform Core'}
-                                        </span>
+
+                                {/* Teacher Mode Switcher */}
+                                {role === 'teacher' && !userCreated && (
+                                    <div className="flex rounded-2xl bg-stone-100/90 p-1 border border-stone-200/60">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setTeacherMode('new'); setError(''); }}
+                                            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                                                teacherMode === 'new'
+                                                    ? 'bg-white shadow-sm text-foreground'
+                                                    : 'text-stone-500 hover:text-stone-900'
+                                            }`}
+                                        >
+                                            New Account
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setTeacherMode('attach_family'); setError(''); }}
+                                            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                                                teacherMode === 'attach_family'
+                                                    ? 'bg-white shadow-sm text-amber-900'
+                                                    : 'text-stone-500 hover:text-stone-900'
+                                            }`}
+                                        >
+                                            Attach to Family Account
+                                        </button>
                                     </div>
                                 )}
-                                {(role === 'student' || role === 'parent') && selectedSchool && (
-                                    <p className={`text-xs font-semibold rounded-xl px-3 py-2 ${selectedSchool.combined_parent_student_account !== false ? 'bg-teal-50 text-teal-800 border border-teal-100' : 'bg-stone-100 text-stone-700 border border-stone-200'}`}>
-                                        This school has combined parent/student account — {selectedSchool.combined_parent_student_account !== false ? 'enabled' : 'disabled'}.
-                                    </p>
+
+                                {/* Attach to Family Flow */}
+                                {role === 'teacher' && teacherMode === 'attach_family' ? (
+                                    <div className="space-y-4">
+                                        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs leading-relaxed">
+                                            Enable Teacher access on an existing family or student account without creating duplicate logins or changing family student records.
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-semibold text-muted block mb-1.5">
+                                                <span className="inline-flex items-center gap-1"><Search className="w-3 h-3" /> Search Existing Family Accounts</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={familySearchQuery}
+                                                onChange={e => setFamilySearchQuery(e.target.value)}
+                                                placeholder="Search by name, email, or student name..."
+                                                className="clay-input w-full text-sm"
+                                                autoFocus
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                                            {isSearchingFamily && (
+                                                <p className="text-xs text-muted text-center py-2">Searching accounts…</p>
+                                            )}
+                                            {!isSearchingFamily && familySearchResults.length === 0 && (
+                                                <p className="text-xs text-stone-400 text-center py-3">
+                                                    {familySearchQuery.trim() ? 'No accounts found matching search' : 'Search for an account by name or email'}
+                                                </p>
+                                            )}
+                                            {familySearchResults.map(acc => {
+                                                const isSelected = selectedFamilyAccount?.account_id === acc.account_id;
+                                                return (
+                                                    <div
+                                                        key={acc.account_id}
+                                                        onClick={() => {
+                                                            setSelectedFamilyAccount(acc);
+                                                            setAttachStaffPersonName(acc.staff_person_name || '');
+                                                            setAttachDesignation(acc.designation || 'Teacher');
+                                                            setAttachDepartment(acc.department || '');
+                                                            setError('');
+                                                        }}
+                                                        className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                                                            isSelected
+                                                                ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-400/30'
+                                                                : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-stone-50/60'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="font-bold text-xs text-foreground truncate">{acc.full_name || 'Anonymous'}</span>
+                                                            <span className="text-[10px] font-mono text-muted truncate">{acc.email}</span>
+                                                        </div>
+                                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                            {(acc.roles && acc.roles.length > 0 ? acc.roles : [acc.primary_role]).map(r => (
+                                                                <span key={r} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 uppercase">
+                                                                    {r}
+                                                                </span>
+                                                            ))}
+                                                            {acc.has_teacher_role && (
+                                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                                                    Already Staff
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {acc.linked_students && acc.linked_students.length > 0 && (
+                                                            <div className="mt-2 pt-1.5 border-t border-gray-100 flex flex-wrap gap-1">
+                                                                {acc.linked_students.map(s => (
+                                                                    <span key={s.student_id} className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 font-medium">
+                                                                        🎓 {s.student_name}{s.class_name ? ` (${s.class_name})` : ''} · {s.relationship}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* Selected Account Setup */}
+                                        {selectedFamilyAccount && (
+                                            <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <GraduationCap className="w-4 h-4 text-amber-800" />
+                                                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Teacher Identity Setup</span>
+                                                </div>
+                                                <p className="text-[11px] text-amber-800/80">
+                                                    Selected: <strong className="text-amber-950">{selectedFamilyAccount.full_name}</strong> ({selectedFamilyAccount.email})
+                                                </p>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">
+                                                        Educator's Real Name <span className="text-rose-500">*</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={attachStaffPersonName}
+                                                        onChange={e => setAttachStaffPersonName(e.target.value)}
+                                                        placeholder="e.g. Sunita Sharma"
+                                                        className="clay-input w-full text-sm bg-white"
+                                                    />
+                                                    <p className="text-[10px] text-stone-500 mt-1">
+                                                        Used for teacher assignments, timetables, and staff rosters.
+                                                    </p>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
+                                                        <input
+                                                            type="text"
+                                                            value={attachDesignation}
+                                                            onChange={e => setAttachDesignation(e.target.value)}
+                                                            placeholder="e.g. Senior Teacher"
+                                                            className="clay-input w-full text-sm bg-white"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
+                                                        <input
+                                                            type="text"
+                                                            value={attachDepartment}
+                                                            onChange={e => setAttachDepartment(e.target.value)}
+                                                            placeholder="e.g. Science"
+                                                            className="clay-input w-full text-sm bg-white"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    /* Standard New User Creation Flow */
+                                    <>
+                                        <div>
+                                            <label className="text-xs font-semibold text-muted block mb-1.5">Full Name <span className="text-rose-500">*</span></label>
+                                            <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="e.g. Jane Smith" autoFocus />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-muted block mb-1.5">
+                                                <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Login Email <span className="text-rose-500">*</span></span>
+                                            </label>
+                                            {lockedDomain ? (
+                                                <div className="flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-primary/20">
+                                                    <input
+                                                        type="text"
+                                                        value={emailLocal}
+                                                        onChange={e => setEmailLocal(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                                                        disabled={userCreated}
+                                                        className="flex-1 px-3 py-2 text-sm outline-none disabled:opacity-60 font-mono"
+                                                        placeholder="john.doe"
+                                                        autoComplete="off"
+                                                    />
+                                                    <span className="px-3 py-2 bg-stone-50 border-l border-gray-200 text-sm text-stone-600 font-mono truncate max-w-[55%]" title={`@${lockedDomain}`}>
+                                                        @{lockedDomain}
+                                                    </span>
+                                                </div>
+                                            ) : isSuperadmin ? (
+                                                <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="user@example.com" />
+                                            ) : (
+                                                <div className="clay-input w-full text-sm bg-stone-50 text-stone-500 italic cursor-not-allowed">
+                                                    Email domain not configured
+                                                </div>
+                                            )}
+                                            {lockedDomain && (
+                                                <p className="text-[10px] text-muted mt-1">Full email: <span className="font-mono text-foreground">{(emailLocal || 'username')}@{lockedDomain}</span></p>
+                                            )}
+                                            {!lockedDomain && schoolId && (
+                                                <p className="text-[10px] text-amber-600 mt-1">
+                                                    {isSuperadmin
+                                                        ? 'This school has no email domain configured. Set one in Database → Edit school so all logins share the same subdomain.'
+                                                        : 'Your school has no email domain configured yet. Ask your platform superadmin to set one before creating users.'}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-muted block mb-1.5">
+                                                <span className="inline-flex items-center gap-1"><Key className="w-3 h-3" /> Password <span className="text-rose-500">*</span></span>
+                                            </label>
+                                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} disabled={userCreated} className="clay-input w-full text-sm disabled:opacity-60" placeholder="Minimum 6 characters" />
+                                        </div>
+
+                                        {role === 'teacher' && (
+                                            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2.5">
+                                                <div className="flex items-center gap-2">
+                                                    <GraduationCap className="w-4 h-4 text-amber-800" />
+                                                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Teacher Details (Optional)</span>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">Educator Real Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={teacherStaffName}
+                                                        onChange={e => setTeacherStaffName(e.target.value)}
+                                                        placeholder={fullName || "e.g. Sunita Sharma"}
+                                                        disabled={userCreated}
+                                                        className="clay-input w-full text-sm bg-white"
+                                                    />
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
+                                                        <input
+                                                            type="text"
+                                                            value={teacherDesignation}
+                                                            onChange={e => setTeacherDesignation(e.target.value)}
+                                                            placeholder="e.g. Senior Teacher"
+                                                            disabled={userCreated}
+                                                            className="clay-input w-full text-sm bg-white"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
+                                                        <input
+                                                            type="text"
+                                                            value={teacherDepartment}
+                                                            onChange={e => setTeacherDepartment(e.target.value)}
+                                                            placeholder="e.g. Science"
+                                                            disabled={userCreated}
+                                                            className="clay-input w-full text-sm bg-white"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {role && (
+                                            <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                                <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest ${ROLE_CONFIG[role]?.bg ?? 'bg-gray-100'} ${ROLE_CONFIG[role]?.color ?? 'text-gray-700'}`}>
+                                                    {ROLE_CONFIG[role]?.label ?? role}
+                                                </span>
+                                                <span className="text-xs text-muted">
+                                                    {schoolId ? schools.find(s => s.id === schoolId)?.name ?? 'Unknown School' : 'Platform Core'}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {(role === 'student' || role === 'parent') && selectedSchool && (
+                                            <p className={`text-xs font-semibold rounded-xl px-3 py-2 ${selectedSchool.combined_parent_student_account !== false ? 'bg-teal-50 text-teal-800 border border-teal-100' : 'bg-stone-100 text-stone-700 border border-stone-200'}`}>
+                                                This school has combined parent/student account — {selectedSchool.combined_parent_student_account !== false ? 'enabled' : 'disabled'}.
+                                            </p>
+                                        )}
+                                    </>
                                 )}
 
                                 {/* ── Recovery Email Section (after user is created) ── */}
@@ -1274,7 +1674,24 @@ const AddUserModal: React.FC<{
                             </div>
                             {/* Footer */}
                             <div className="px-7 pb-7 pt-3 flex gap-3 border-t border-gray-100 bg-[#FAF9F6]">
-                                {!userCreated ? (
+                                {role === 'teacher' && teacherMode === 'attach_family' ? (
+                                    <>
+                                        <button onClick={onClose} className="flex-1 py-3 rounded-2xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors">
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleAttachTeacher}
+                                            disabled={saving || !selectedFamilyAccount || !attachStaffPersonName.trim()}
+                                            className="flex-1 clay-btn py-3 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        >
+                                            {saving ? (
+                                                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Attaching...</>
+                                            ) : (
+                                                <>Attach Teacher Access</>
+                                            )}
+                                        </button>
+                                    </>
+                                ) : !userCreated ? (
                                     <>
                                         <button onClick={onClose} className="flex-1 py-3 rounded-2xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors">
                                             Cancel

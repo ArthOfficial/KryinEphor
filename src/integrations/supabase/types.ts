@@ -5272,6 +5272,20 @@ export type Database = {
         Args: { _target_user_id: string }
         Returns: string[]
       }
+      fn_search_school_accounts_for_staff: {
+        Args: { _query: string; _school_id: string }
+        Returns: {
+          user_id: string
+          email: string
+          full_name: string | null
+          primary_role: string
+          additional_roles: string[]
+          is_active: boolean
+          staff_name: string | null
+          has_teacher_role: boolean
+          linked_students: Json
+        }[]
+      }
       fn_manual_unlock: {
         Args: { p_actor: string; p_school: string; p_until: string }
         Returns: undefined

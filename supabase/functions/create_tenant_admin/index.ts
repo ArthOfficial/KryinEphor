@@ -293,6 +293,19 @@ Deno.serve(async (req: Request) => {
                     status: 'active'
                 }, { onConflict: 'user_id,school_id' });
 
+            if (targetRole === 'teacher') {
+                await supabaseAdmin
+                    .from('employees')
+                    .upsert({
+                        profile_id: userData.user.id,
+                        school_id: schoolId,
+                        designation: 'Teacher',
+                        department: 'Academics',
+                        status: 'active',
+                        staff_person_name: fullName,
+                    }, { onConflict: 'profile_id,school_id' });
+            }
+
             if (membershipError) {
                 // Rollback: profile (CASCADE-linked to auth.users) + auth user
                 await supabaseAdmin.from('profiles').delete().eq('id', userData.user.id);

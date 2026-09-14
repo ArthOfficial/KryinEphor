@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        const { adminId, password, fullName, schoolId, role, isActive, metadataPermissions, additionalRoles } = payload;
+        const { adminId, password, fullName, schoolId, role, isActive, metadataPermissions, additionalRoles, staffPersonName, designation, department } = payload;
         const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email;
 
         if (!adminId) {
@@ -376,6 +376,54 @@ Deno.serve(async (req: Request) => {
                         onConflict: 'user_id,role',
                         ignoreDuplicates: true,
                     });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STAFF IDENTITY (employees) — Keep Teacher identity canonical
+        // If the user has 'teacher' role, ensure active employees row
+        // with the adult staff name (distinct from student name).
+        // ═══════════════════════════════════════════════════════════════
+        const targetEffectiveRole = role || targetProfile.role;
+        const targetEffectiveRoles = [targetEffectiveRole, ...(Array.isArray(additionalRoles) ? additionalRoles : [])];
+        if (targetEffectiveRoles.includes('teacher')) {
+            const effectiveSchool = schoolId !== undefined ? (schoolId || null) : targetProfile.school_id;
+            if (effectiveSchool) {
+                const staffName = (typeof staffPersonName === 'string' && staffPersonName.trim())
+                    ? staffPersonName.trim()
+                    : (fullName || targetProfile.full_name || 'Teacher');
+
+                const { data: existingEmp } = await supabaseAdmin
+                    .from('employees')
+                    .select('id')
+                    .eq('profile_id', adminId)
+                    .eq('school_id', effectiveSchool)
+                    .is('deleted_at', null)
+                    .maybeSingle();
+
+                if (existingEmp) {
+                    const updatePayload: Record<string, unknown> = {
+                        status: 'active',
+                        staff_person_name: staffName,
+                    };
+                    if (designation) updatePayload.designation = designation;
+                    if (department) updatePayload.department = department;
+
+                    await supabaseAdmin
+                        .from('employees')
+                        .update(updatePayload)
+                        .eq('id', existingEmp.id);
+                } else {
+                    await supabaseAdmin
+                        .from('employees')
+                        .insert({
+                            profile_id: adminId,
+                            school_id: effectiveSchool,
+                            staff_person_name: staffName,
+                            designation: designation || 'Teacher',
+                            department: department || 'Academics',
+                            status: 'active',
+                        });
+                }
             }
         }
 
