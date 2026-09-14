@@ -5316,6 +5316,67 @@ export type Database = {
         Args: { _target_profile_id: string }
         Returns: Json
       }
+      fn_check_staff_pin_status: {
+        Args: { _school_id: string; _target_user_id?: string }
+        Returns: {
+          has_pin: boolean
+          must_change: boolean
+          is_locked: boolean
+          locked_until: string | null
+          attempts_remaining: number
+          is_temporary: boolean
+          success?: boolean
+          error?: string
+        }
+      }
+      fn_setup_or_change_staff_pin: {
+        Args: {
+          _school_id: string
+          _target_user_id: string
+          _new_pin: string
+          _current_pin?: string | null
+          _is_temporary?: boolean
+        }
+        Returns: {
+          success: boolean
+          error?: string
+          must_change?: boolean
+        }
+      }
+      fn_verify_staff_pin: {
+        Args: {
+          _school_id: string
+          _pin: string
+          _device_info?: string | null
+        }
+        Returns: {
+          success: boolean
+          error?: string
+          message?: string
+          session_token?: string
+          expires_at?: string
+          must_change?: boolean
+          locked_until?: string
+          attempts_remaining?: number
+        }
+      }
+      fn_validate_staff_session: {
+        Args: { _session_token: string }
+        Returns: {
+          is_valid: boolean
+          school_id?: string
+          expires_at?: string
+          must_change?: boolean
+        }
+      }
+      fn_revoke_staff_session: {
+        Args: { _session_token: string }
+        Returns: { success: boolean }
+      }
+      fn_is_staff_unlocked: {
+        Args: { _school_id: string; _session_token: string }
+        Returns: boolean
+      }
       fn_manual_unlock: {
         Args: { p_actor: string; p_school: string; p_until: string }
         Returns: undefined

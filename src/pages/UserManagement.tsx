@@ -4,6 +4,8 @@ import {
     Search,
     MoreVertical,
     Key,
+    Lock,
+    KeyRound,
     X,
     Crown,
     Building2,
@@ -128,6 +130,59 @@ const UserDrawer: React.FC<{
     const [linkIsPrimary, setLinkIsPrimary] = useState(true);
     const [linkingBusy, setLinkingBusy] = useState(false);
 
+    // Staff PIN state (Phase 5)
+    interface StaffPinInfo {
+        has_pin: boolean;
+        must_change: boolean;
+        is_locked: boolean;
+        locked_until: string | null;
+        attempts_remaining: number;
+        is_temporary: boolean;
+    }
+    const [staffPinInfo, setStaffPinInfo] = useState<StaffPinInfo | null>(null);
+    const [showResetPinInput, setShowResetPinInput] = useState(false);
+    const [tempPinValue, setTempPinValue] = useState('');
+    const [resettingPin, setResettingPin] = useState(false);
+
+    const fetchStaffPinStatus = async (schoolId: string, userId: string) => {
+        try {
+            const { data, error } = await supabase.rpc('fn_check_staff_pin_status', {
+                _school_id: schoolId,
+                _target_user_id: userId
+            });
+            if (!error && data) {
+                setStaffPinInfo(data as StaffPinInfo);
+            }
+        } catch { /* ignore */ }
+    };
+
+    const handleIssueStaffPin = async () => {
+        if (!user || !user.school_id) return;
+        if (tempPinValue.length < 6 || tempPinValue.length > 8) {
+            toast.error('PIN must be 6 to 8 numeric digits');
+            return;
+        }
+        setResettingPin(true);
+        try {
+            const { data, error } = await supabase.rpc('fn_setup_or_change_staff_pin', {
+                _school_id: user.school_id,
+                _target_user_id: user.id,
+                _new_pin: tempPinValue,
+                _is_temporary: true
+            });
+            if (error) throw error;
+            if (data && !data.success) throw new Error(data.error || 'Failed to set PIN');
+            toast.success('Temporary Staff PIN issued successfully.');
+            setShowResetPinInput(false);
+            setTempPinValue('');
+            fetchStaffPinStatus(user.school_id, user.id);
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to issue PIN');
+        } finally {
+            setResettingPin(false);
+        }
+    };
+
     const [newPass, setNewPass] = useState('');
     const [saving, setSaving] = useState(false);
     const [passSaving, setPassSaving] = useState(false);
@@ -206,6 +261,13 @@ const UserDrawer: React.FC<{
                     setEditDepartment(data.department || '');
                 }
             })();
+
+            // Fetch Staff PIN status if user has school
+            if (user.school_id) {
+                fetchStaffPinStatus(user.school_id, user.id);
+            }
+            setShowResetPinInput(false);
+            setTempPinValue('');
         }
     }, [user]);
 
@@ -631,6 +693,89 @@ const UserDrawer: React.FC<{
                                                     />
                                                 </div>
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {/* ── Section: Staff Mode Security & PIN (Phase 5) ── */}
+                                    {(editRole === 'teacher' || additionalRoles.includes('teacher')) && (
+                                        <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Lock className="w-4 h-4 text-amber-800" />
+                                                    <span className="text-xs font-bold uppercase tracking-wider text-amber-900">Staff Mode PIN Security</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    {staffPinInfo?.has_pin ? (
+                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                            PIN Active
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-200 text-stone-700">
+                                                            No PIN Set
+                                                        </span>
+                                                    )}
+                                                    {staffPinInfo?.is_locked && (
+                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                                            Locked
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <p className="text-[11px] text-amber-800/80 leading-relaxed">
+                                                Protects Teacher view with a 6-digit staff unlock PIN. Server tracks failed attempts and locks out after 5 failures.
+                                            </p>
+
+                                            {showResetPinInput ? (
+                                                <div className="p-3 bg-white rounded-xl border border-amber-200 space-y-2.5">
+                                                    <label className="text-xs font-semibold text-stone-700 block">
+                                                        Issue Temporary 6-Digit PIN
+                                                    </label>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            maxLength={8}
+                                                            value={tempPinValue}
+                                                            onChange={e => setTempPinValue(e.target.value.replace(/\D/g, ''))}
+                                                            placeholder="e.g. 123456"
+                                                            className="clay-input flex-1 text-sm bg-stone-50"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setTempPinValue(Math.floor(100000 + Math.random() * 900000).toString())}
+                                                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 hover:bg-stone-100 text-stone-700"
+                                                        >
+                                                            Generate
+                                                        </button>
+                                                    </div>
+                                                    <div className="flex justify-end gap-2 pt-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setShowResetPinInput(false); setTempPinValue(''); }}
+                                                            className="text-xs text-stone-600 px-2.5 py-1 rounded hover:bg-stone-100"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={resettingPin || tempPinValue.length < 6}
+                                                            onClick={handleIssueStaffPin}
+                                                            className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                                                        >
+                                                            {resettingPin ? 'Saving…' : 'Save Temporary PIN'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowResetPinInput(true)}
+                                                    className="w-full text-xs font-bold px-3 py-2 rounded-xl bg-white border border-amber-200 text-amber-900 hover:bg-amber-100/50 transition-colors shadow-2xs flex items-center justify-center gap-1.5"
+                                                >
+                                                    <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                                                    {staffPinInfo?.has_pin ? 'Reset Staff PIN / Set Temporary' : 'Issue Initial Staff PIN'}
+                                                </button>
+                                            )}
                                         </div>
                                     )}
 

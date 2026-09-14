@@ -727,6 +727,32 @@ Never mix them.
 
 # PHASE 5 — SECURE TEACHER MODE / STAFF PIN
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915010000_phase5_secure_staff_pin.sql`.
+- [x] **Secure Schema Design**:
+  - Table `staff_pins`: stores `pin_hash` (hashed with pgcrypto blowfish salt), `failed_attempts`, `locked_until`, `is_temporary`, and `must_change`. RLS enabled, direct client queries blocked.
+  - Table `staff_unlock_sessions`: stores device-specific `session_token`, `expires_at` (2 hours), `is_revoked`, `revoked_reason`, and `last_activity_at`. RLS enabled.
+- [x] **Server-Side Verification & Lockout RPCs**:
+  - `fn_check_staff_pin_status`: Returns whether PIN is configured, lockout status, locked timestamp, and remaining attempts.
+  - `fn_setup_or_change_staff_pin`: Validates 6-8 digit numeric PIN, verifies current PIN on self-service change, hashes via `crypt(pin, gen_salt('bf', 10))`, revokes active sessions on PIN update, and logs to `admin_action_audit`.
+  - `fn_verify_staff_pin`: Checks caller's staff roles, verifies lockout status, validates PIN via `crypt()`. Automatically tracks failed attempts, locks account for 15 minutes after 5 failures, generates cryptographically random 32-byte hex token upon success, and logs audit events.
+  - `fn_validate_staff_session`: Validates unexpired, non-revoked session token, updates activity timestamp.
+  - `fn_revoke_staff_session`: Revokes session immediately on logout or manual lock.
+  - `fn_is_staff_unlocked`: SQL helper for RLS and server-side authorization.
+- [x] **Auth Context Integration (`AuthContext.tsx` & `authContextValue.ts`)**:
+  - Added `isStaffUnlocked`, `staffSessionToken`, `staffPinStatus`, `unlockStaffMode`, `lockStaffMode`, `setupStaffPin`.
+  - Session restoration validates stored staff session token against server; falls back to parent/student role if staff mode is not unlocked.
+  - Gated `switchDashboardRole('teacher')`: prompts Staff PIN modal before allowing role change.
+  - `signOut`: actively revokes staff session in Supabase and clears `sessionStorage`.
+- [x] **High-End UI Components**:
+  - `StaffPinModal.tsx`: Modern glassmorphic unlock modal featuring discrete masked 6-digit display, live attempts-remaining warnings, lockout countdowns, and self-setup flow.
+  - `Sidebar.tsx`: Lock indicator on Teacher button when locked, plus "Lock Teacher View" quick-action button when active.
+  - `Header.tsx`: "Lock Teacher View" action button in the top navigation bar.
+  - `UserManagement.tsx`: Added "Staff Mode PIN Security" card in `UserDrawer` allowing administrators to inspect PIN status and issue temporary 6-digit PINs with random generation.
+- [x] **Build Verification**: Verified `npm run build` succeeds with 0 errors.
+
 Student ↔ Parent switching may remain convenient.
 
 Teacher mode is privileged and MUST have additional protection.

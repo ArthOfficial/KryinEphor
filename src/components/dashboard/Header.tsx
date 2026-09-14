@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu, ArrowLeftRight } from 'lucide-react';
+import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu, ArrowLeftRight, Lock } from 'lucide-react';
 import NotificationsBell from './NotificationsBell';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -22,7 +22,7 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
-    const { role, roles, user, switchDashboardRole } = useAuth();
+    const { role, roles, user, switchDashboardRole, lockStaffMode } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [searchQuery, setSearchQuery] = useState('');
@@ -139,6 +139,22 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
             </button>
 
             <div className="flex items-center gap-3">
+                {/* Phase 5: Lock Teacher View button */}
+                {role === 'teacher' && (
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            await lockStaffMode();
+                            navigate('/dashboard');
+                        }}
+                        title="Lock Teacher View (return to family view)"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                    >
+                        <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span className="hidden sm:inline">Lock Teacher View</span>
+                    </button>
+                )}
+
                 {/* Switch button for Student/Parent */}
                 {roles.includes('student') && roles.includes('parent') && (
                     <button

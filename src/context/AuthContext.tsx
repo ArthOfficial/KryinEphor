@@ -3,8 +3,9 @@ import type { UserRole } from '../config/roles';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
-import { AuthContext, type AuthUser } from './authContextValue';
+import { AuthContext, type AuthUser, type StaffPinStatus } from './authContextValue';
 import { shouldHydrateAuthEvent, signOutBeforeRedirect } from '../lib/auth/loginSession';
+import { StaffPinModal } from '../components/auth/StaffPinModal';
 
 // Re-export useAuth from its dedicated module so existing imports keep working
 // while React Fast Refresh treats this file as a pure component module.
@@ -58,6 +59,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [toast, setToast] = useState({ show: false, message: '' });
     const loginInProgressRef = useRef(false);
 
+    // Phase 5 Staff PIN and unlock state
+    const [isStaffUnlocked, setIsStaffUnlocked] = useState(false);
+    const [staffSessionToken, setStaffSessionToken] = useState<string | null>(null);
+    const [staffPinStatus, setStaffPinStatus] = useState<StaffPinStatus | null>(null);
+    const [isStaffPinModalOpen, setIsStaffPinModalOpen] = useState(false);
+
     /**
      * Handle a Supabase auth session — fetch profile and set state.
      */
@@ -66,6 +73,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(null);
             setRole(null);
             setRoles([]);
+            setIsStaffUnlocked(false);
+            setStaffSessionToken(null);
             setLoading(false);
             return;
         }
@@ -88,6 +97,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ...(((rolesData ?? []) as string[]).map(r => r as UserRole)),
             ]));
             setRoles(allRoles);
+
+            // Phase 5: Server-side validation of staff unlock session token
+            let hasValidStaffUnlock = false;
+            let validToken: string | null = null;
+            if (allRoles.includes('teacher')) {
+                try {
+                    const storedToken = sessionStorage.getItem(`staff_session_token_${supaUser.id}`);
+                    if (storedToken) {
+                        const { data: valData } = await supabase.rpc('fn_validate_staff_session', {
+                            _session_token: storedToken
+                        });
+                        if (valData && valData.is_valid) {
+                            hasValidStaffUnlock = true;
+                            validToken = storedToken;
+                        } else {
+                            sessionStorage.removeItem(`staff_session_token_${supaUser.id}`);
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+            setIsStaffUnlocked(hasValidStaffUnlock);
+            setStaffSessionToken(validToken);
+
             let effectiveActiveRole = profile.role;
             try {
                 const storedRole = localStorage.getItem(`active_role_${supaUser.id}`) as UserRole | null;
@@ -95,6 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     effectiveActiveRole = storedRole;
                 }
             } catch { /* ignore */ }
+
+            // If stored role was 'teacher' but staff mode is not unlocked,
+            // fall back to parent or student so privileged educator view is not open on shared devices.
+            if (effectiveActiveRole === 'teacher' && !hasValidStaffUnlock && allRoles.some(r => r === 'student' || r === 'parent')) {
+                effectiveActiveRole = allRoles.includes('parent') ? 'parent' : 'student';
+            }
+
             setRole(effectiveActiveRole);
             if (shouldLog) {
                 await logger.info('auth', 'Session restored', {
@@ -106,6 +145,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(null);
             setRole(null);
             setRoles([]);
+            setIsStaffUnlocked(false);
+            setStaffSessionToken(null);
             if (shouldLog) {
                 await logger.warn('auth', 'User has no profile', {
                     details: { email: supaUser.email, userId: supaUser.id }
@@ -309,6 +350,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Supabase server round-trip (which was adding ~5–7s to sign-out).
         // Global session revocation happens lazily on next server contact.
         try {
+            // Phase 5: Revoke server staff unlock session on logout
+            if (staffSessionToken) {
+                try {
+                    await supabase.rpc('fn_revoke_staff_session', { _session_token: staffSessionToken });
+                } catch { /* ignore */ }
+            }
+            if (currentUserId) {
+                try {
+                    sessionStorage.removeItem(`staff_session_token_${currentUserId}`);
+                } catch { /* ignore */ }
+            }
+            setIsStaffUnlocked(false);
+            setStaffSessionToken(null);
+
             await signOutBeforeRedirect(
                 () => supabase.auth.signOut({ scope: 'global' }),
                 () => {
@@ -340,16 +395,139 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    const switchDashboardRole = useCallback((nextRole: UserRole) => {
-        if (roles.includes(nextRole)) {
-            setRole(nextRole);
+    const checkStaffPinStatus = useCallback(async (): Promise<StaffPinStatus | null> => {
+        if (!user?.schoolId) return null;
+        try {
+            const { data, error } = await supabase.rpc('fn_check_staff_pin_status', {
+                _school_id: user.schoolId
+            });
+            if (error || !data) return null;
+            const s: StaffPinStatus = {
+                hasPin: Boolean(data.has_pin),
+                mustChange: Boolean(data.must_change),
+                isLocked: Boolean(data.is_locked),
+                lockedUntil: data.locked_until ?? null,
+                attemptsRemaining: data.attempts_remaining ?? 5,
+                isTemporary: Boolean(data.is_temporary),
+            };
+            setStaffPinStatus(s);
+            return s;
+        } catch {
+            return null;
+        }
+    }, [user?.schoolId]);
+
+    const unlockStaffMode = useCallback(async (pin: string) => {
+        if (!user?.schoolId || !user?.id) {
+            return { success: false, error: 'No active school context' };
+        }
+        try {
+            const { data, error } = await supabase.rpc('fn_verify_staff_pin', {
+                _school_id: user.schoolId,
+                _pin: pin,
+                _device_info: navigator.userAgent
+            });
+            if (error) {
+                return { success: false, error: error.message };
+            }
+            if (data && data.success && data.session_token) {
+                setIsStaffUnlocked(true);
+                setStaffSessionToken(data.session_token);
+                try {
+                    sessionStorage.setItem(`staff_session_token_${user.id}`, data.session_token);
+                } catch { /* ignore */ }
+                // Successfully unlocked! Now switch active role to 'teacher'
+                setRole('teacher');
+                try {
+                    localStorage.setItem(`active_role_${user.id}`, 'teacher');
+                } catch { /* ignore */ }
+                return { success: true, mustChange: data.must_change };
+            } else {
+                return {
+                    success: false,
+                    error: data?.error,
+                    message: data?.message,
+                    attemptsRemaining: data?.attempts_remaining,
+                    lockedUntil: data?.locked_until
+                };
+            }
+        } catch (err: unknown) {
+            return { success: false, error: err instanceof Error ? err.message : 'Unlock failed' };
+        }
+    }, [user?.schoolId, user?.id]);
+
+    const lockStaffMode = useCallback(async () => {
+        if (staffSessionToken) {
             try {
-                if (user?.id) {
-                    localStorage.setItem(`active_role_${user.id}`, nextRole);
-                }
+                await supabase.rpc('fn_revoke_staff_session', { _session_token: staffSessionToken });
             } catch { /* ignore */ }
         }
-    }, [roles, user?.id]);
+        setIsStaffUnlocked(false);
+        setStaffSessionToken(null);
+        if (user?.id) {
+            try {
+                sessionStorage.removeItem(`staff_session_token_${user.id}`);
+            } catch { /* ignore */ }
+        }
+        // Fallback role: parent or student if available on account
+        if (role === 'teacher') {
+            const fallbackRole: UserRole = roles.includes('parent')
+                ? 'parent'
+                : (roles.includes('student') ? 'student' : roles[0]);
+            setRole(fallbackRole);
+            if (user?.id) {
+                try {
+                    localStorage.setItem(`active_role_${user.id}`, fallbackRole);
+                } catch { /* ignore */ }
+            }
+        }
+    }, [staffSessionToken, user?.id, role, roles]);
+
+    const setupStaffPin = useCallback(async (newPin: string, currentPin?: string) => {
+        if (!user?.schoolId || !user?.id) {
+            return { success: false, error: 'No active school context' };
+        }
+        try {
+            const { data, error } = await supabase.rpc('fn_setup_or_change_staff_pin', {
+                _school_id: user.schoolId,
+                _target_user_id: user.id,
+                _new_pin: newPin,
+                _current_pin: currentPin || null,
+                _is_temporary: false
+            });
+            if (error) {
+                return { success: false, error: error.message };
+            }
+            if (data && data.success) {
+                await checkStaffPinStatus();
+                return { success: true };
+            } else {
+                return { success: false, error: data?.error || 'Failed to update PIN' };
+            }
+        } catch (err: unknown) {
+            return { success: false, error: err instanceof Error ? err.message : 'Setup failed' };
+        }
+    }, [user?.schoolId, user?.id, checkStaffPinStatus]);
+
+    const openStaffPinModal = useCallback(() => setIsStaffPinModalOpen(true), []);
+    const closeStaffPinModal = useCallback(() => setIsStaffPinModalOpen(false), []);
+
+    const switchDashboardRole = useCallback((nextRole: UserRole) => {
+        if (!roles.includes(nextRole)) return;
+
+        // Phase 5: Gating teacher role switch behind verified staff PIN unlock
+        if (nextRole === 'teacher' && !isStaffUnlocked) {
+            setIsStaffPinModalOpen(true);
+            return;
+        }
+
+        setRole(nextRole);
+        try {
+            if (user?.id) {
+                localStorage.setItem(`active_role_${user.id}`, nextRole);
+            }
+        } catch { /* ignore */ }
+    }, [roles, user?.id, isStaffUnlocked]);
 
     const hideToast = () => setToast({ ...toast, show: false });
 
@@ -367,9 +545,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             login,
             signOut,
             toast,
-            hideToast
+            hideToast,
+            isStaffUnlocked,
+            staffSessionToken,
+            staffPinStatus,
+            checkStaffPinStatus,
+            unlockStaffMode,
+            lockStaffMode,
+            setupStaffPin,
+            isStaffPinModalOpen,
+            openStaffPinModal,
+            closeStaffPinModal
         }}>
             {children}
+            <StaffPinModal
+                isOpen={isStaffPinModalOpen}
+                onClose={() => setIsStaffPinModalOpen(false)}
+            />
         </AuthContext.Provider>
     );
 };

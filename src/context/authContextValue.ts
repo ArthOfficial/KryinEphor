@@ -16,6 +16,15 @@ export interface TransitionState {
     submessage?: string;
 }
 
+export interface StaffPinStatus {
+    hasPin: boolean;
+    mustChange: boolean;
+    isLocked: boolean;
+    lockedUntil: string | null;
+    attemptsRemaining: number;
+    isTemporary: boolean;
+}
+
 export interface AuthContextType {
     user: AuthUser | null;
     role: UserRole | null;
@@ -30,6 +39,17 @@ export interface AuthContextType {
     signOut: () => Promise<void>;
     toast: { show: boolean; message: string };
     hideToast: () => void;
+    // Phase 5 Staff Unlock State & Methods
+    isStaffUnlocked: boolean;
+    staffSessionToken: string | null;
+    staffPinStatus: StaffPinStatus | null;
+    checkStaffPinStatus: () => Promise<StaffPinStatus | null>;
+    unlockStaffMode: (pin: string) => Promise<{ success: boolean; error?: string; attemptsRemaining?: number; lockedUntil?: string; mustChange?: boolean }>;
+    lockStaffMode: () => Promise<void>;
+    setupStaffPin: (newPin: string, currentPin?: string) => Promise<{ success: boolean; error?: string }>;
+    isStaffPinModalOpen: boolean;
+    openStaffPinModal: () => void;
+    closeStaffPinModal: () => void;
 }
 
 // Stable context identity across HMR — defined in a non-component module so

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined, ArrowLeftRight } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined, ArrowLeftRight, Lock } from 'lucide-react';
 import {
     LayoutDashboard,
     Users,
@@ -27,7 +27,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
-    const { user, role, roles, signOut, isTransitioning, switchDashboardRole } = useAuth();
+    const { user, role, roles, signOut, isTransitioning, switchDashboardRole, isStaffUnlocked, lockStaffMode } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -278,6 +278,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
                                         {roles.map((r) => {
                                             const isCurrent = r === activeRole;
                                             const rStyle = getRoleStyle(r);
+                                            const isTeacherLocked = r === 'teacher' && !isStaffUnlocked;
                                             return (
                                                 <button
                                                     key={r}
@@ -288,18 +289,35 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
                                                             navigate('/dashboard');
                                                         }
                                                     }}
-                                                    title={`Switch view to ${rStyle.label}`}
-                                                    className={`text-xs font-bold rounded-xl transition-all ${collapsed ? 'w-8 h-8 flex items-center justify-center' : 'px-2.5 py-1.5 flex-1 min-w-[65px] text-center'} ${
+                                                    title={`Switch view to ${rStyle.label}${isTeacherLocked ? ' (PIN required)' : ''}`}
+                                                    className={`text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 ${collapsed ? 'w-8 h-8' : 'px-2.5 py-1.5 flex-1 min-w-[65px] text-center'} ${
                                                         isCurrent
                                                             ? 'bg-primary text-white shadow-sm shadow-teal-900/20'
                                                             : 'bg-white/80 hover:bg-white text-stone-600 border border-stone-200/70 hover:border-teal-300'
                                                     }`}
                                                 >
-                                                    {collapsed ? r.charAt(0).toUpperCase() : rStyle.label}
+                                                    <span>{collapsed ? r.charAt(0).toUpperCase() : rStyle.label}</span>
+                                                    {isTeacherLocked && !collapsed && (
+                                                        <Lock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                                    )}
                                                 </button>
                                             );
                                         })}
                                     </div>
+                                    {activeRole === 'teacher' && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                await lockStaffMode();
+                                                navigate('/dashboard');
+                                            }}
+                                            title="Lock Teacher View"
+                                            className={`w-full mt-2 flex items-center justify-center gap-1.5 ${collapsed ? 'p-2' : 'px-2.5 py-1.5'} rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 hover:bg-amber-100 text-xs font-bold transition-all shadow-xs`}
+                                        >
+                                            <Lock className="w-3 h-3 text-amber-700 shrink-0" />
+                                            {!collapsed && <span>Lock Teacher View</span>}
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
