@@ -93,6 +93,41 @@ const UserDrawer: React.FC<{
     const [editDesignation, setEditDesignation] = useState('');
     const [editDepartment, setEditDepartment] = useState('');
 
+    // Family links state (Phase 4)
+    interface LinkedGuardian {
+        link_id: string;
+        guardian_id: string;
+        full_name: string;
+        email: string;
+        primary_role: string;
+        roles: string[];
+        relationship: string;
+        is_primary: boolean;
+        is_staff: boolean;
+        staff_person_name: string | null;
+        designation: string | null;
+    }
+    interface LinkedStudent {
+        link_id: string;
+        student_id: string;
+        full_name: string;
+        email: string;
+        class_name: string | null;
+        relationship: string;
+        is_primary: boolean;
+    }
+    const [linkedGuardians, setLinkedGuardians] = useState<LinkedGuardian[]>([]);
+    const [linkedStudents, setLinkedStudents] = useState<LinkedStudent[]>([]);
+    const [familyLoading, setFamilyLoading] = useState(false);
+    const [familySearchOpen, setFamilySearchOpen] = useState(false);
+    const [familySearchQuery, setFamilySearchQuery] = useState('');
+    const [familyCandidates, setFamilyCandidates] = useState<any[]>([]);
+    const [searchingFamily, setSearchingFamily] = useState(false);
+    const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
+    const [linkRelationship, setLinkRelationship] = useState('mother');
+    const [linkIsPrimary, setLinkIsPrimary] = useState(true);
+    const [linkingBusy, setLinkingBusy] = useState(false);
+
     const [newPass, setNewPass] = useState('');
     const [saving, setSaving] = useState(false);
     const [passSaving, setPassSaving] = useState(false);
@@ -109,6 +144,22 @@ const UserDrawer: React.FC<{
     const editLockedDomain = editSelectedSchool?.email_domain || '';
 
     // permsByCategory removed with permissions UI
+
+    const fetchFamilyLinks = async (targetId: string) => {
+        setFamilyLoading(true);
+        try {
+            const { data, error } = await supabase.rpc('fn_get_profile_family_links', { _target_profile_id: targetId });
+            if (!error && data && typeof data === 'object') {
+                const parsed = data as { guardians: LinkedGuardian[]; students: LinkedStudent[] };
+                setLinkedGuardians(parsed.guardians || []);
+                setLinkedStudents(parsed.students || []);
+            }
+        } catch {
+            // silent
+        } finally {
+            setFamilyLoading(false);
+        }
+    };
 
     useEffect(() => {
         if (user) {
@@ -127,6 +178,10 @@ const UserDrawer: React.FC<{
             setEditStaffPersonName('');
             setEditDesignation('');
             setEditDepartment('');
+            setFamilySearchOpen(false);
+            setSelectedCandidate(null);
+
+            fetchFamilyLinks(user.id);
 
             // Fetch this user's assigned roles (primary + additional) via secure RPC.
             (async () => {
@@ -153,6 +208,66 @@ const UserDrawer: React.FC<{
             })();
         }
     }, [user]);
+
+    // Live search for family candidates
+    useEffect(() => {
+        if (!familySearchOpen || !user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        const timer = setTimeout(async () => {
+            setSearchingFamily(true);
+            try {
+                const { data, error } = await supabase.rpc('fn_search_guardians_for_student', {
+                    _school_id: targetSchool,
+                    _query: familySearchQuery.trim()
+                });
+                if (!error && Array.isArray(data)) {
+                    setFamilyCandidates(data.filter((d: any) => d.guardian_id !== user.id));
+                } else {
+                    setFamilyCandidates([]);
+                }
+            } catch {
+                setFamilyCandidates([]);
+            } finally {
+                setSearchingFamily(false);
+            }
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [familySearchOpen, user, editSchool, familySearchQuery]);
+
+    const handleExecuteLink = async () => {
+        if (!user || !selectedCandidate) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setLinkingBusy(true);
+        setErrorMsg('');
+        try {
+            const isTargetStudent = editRole === 'student' || additionalRoles.includes('student');
+            const parentId = isTargetStudent ? selectedCandidate.guardian_id : user.id;
+            const studentId = isTargetStudent ? user.id : selectedCandidate.guardian_id;
+
+            const { error } = await supabase.rpc('fn_link_student_guardian', {
+                _school_id: targetSchool,
+                _parent_id: parentId,
+                _student_id: studentId,
+                _relationship: linkRelationship,
+                _is_primary: linkIsPrimary
+            });
+            if (error) throw error;
+
+            setMessage('Family account linked successfully!');
+            setFamilySearchOpen(false);
+            setSelectedCandidate(null);
+            fetchFamilyLinks(user.id);
+            onSaved();
+        } catch (err) {
+            setErrorMsg((err instanceof Error ? err.message : '') || 'Failed to link relationship.');
+        } finally {
+            setLinkingBusy(false);
+        }
+    };
 
 
     // Category toggles removed with permissions UI
@@ -518,6 +633,167 @@ const UserDrawer: React.FC<{
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* ── Section: Family Relationships (Phase 4) ── */}
+                                    <div className="p-4 rounded-2xl bg-white border border-gray-200 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <UsersIcon className="w-4 h-4 text-primary" />
+                                                <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                                                    {(editRole === 'student' || additionalRoles.includes('student'))
+                                                        ? 'Linked Guardians & Parents'
+                                                        : 'Linked Family Children'}
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setFamilySearchOpen(!familySearchOpen); setSelectedCandidate(null); }}
+                                                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-700 transition-colors"
+                                            >
+                                                {familySearchOpen ? 'Close' : (editRole === 'student' || additionalRoles.includes('student')) ? '+ Link Guardian' : '+ Link Child'}
+                                            </button>
+                                        </div>
+
+                                        {familyLoading ? (
+                                            <p className="text-xs text-muted py-2">Loading family relationships…</p>
+                                        ) : (
+                                            <>
+                                                {/* Show Linked Guardians for Students */}
+                                                {(editRole === 'student' || additionalRoles.includes('student')) && (
+                                                    <div className="space-y-1.5">
+                                                        {linkedGuardians.length === 0 ? (
+                                                            <p className="text-xs text-stone-400 italic">No guardians linked to this student yet.</p>
+                                                        ) : (
+                                                            linkedGuardians.map(g => (
+                                                                <div key={g.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-xs font-bold text-foreground truncate">
+                                                                            {g.staff_person_name || g.full_name}
+                                                                            <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({g.relationship})</span>
+                                                                            {g.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
+                                                                        </p>
+                                                                        <p className="text-[11px] font-mono text-muted truncate">{g.email}</p>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                                        {g.is_staff && (
+                                                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
+                                                                                Staff / Teacher
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Show Linked Children for Staff / Parents */}
+                                                {(editRole !== 'student' && !additionalRoles.includes('student')) && (
+                                                    <div className="space-y-1.5">
+                                                        {linkedStudents.length === 0 ? (
+                                                            <p className="text-xs text-stone-400 italic">No students linked to this account.</p>
+                                                        ) : (
+                                                            linkedStudents.map(s => (
+                                                                <div key={s.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-xs font-bold text-foreground truncate">
+                                                                            🎓 {s.full_name}
+                                                                            {s.class_name && <span className="ml-1 text-stone-600 font-medium">({s.class_name})</span>}
+                                                                            <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({s.relationship})</span>
+                                                                            {s.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
+                                                                        </p>
+                                                                        <p className="text-[11px] font-mono text-muted truncate">{s.email}</p>
+                                                                    </div>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {/* Inline Search & Link Box */}
+                                        {familySearchOpen && (
+                                            <div className="pt-3 border-t border-gray-100 space-y-2.5">
+                                                <label className="text-xs font-semibold text-stone-700 block">
+                                                    {(editRole === 'student' || additionalRoles.includes('student')) ? 'Search Guardian / Teacher to Link' : 'Search Student to Link'}
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={familySearchQuery}
+                                                    onChange={e => setFamilySearchQuery(e.target.value)}
+                                                    placeholder="Search by name, email..."
+                                                    className="clay-input w-full text-xs py-1.5 bg-stone-50"
+                                                    autoFocus
+                                                />
+                                                <div className="space-y-1 max-h-32 overflow-y-auto">
+                                                    {searchingFamily && <p className="text-xs text-muted text-center py-1">Searching…</p>}
+                                                    {!searchingFamily && familyCandidates.length === 0 && (
+                                                        <p className="text-xs text-stone-400 text-center py-1">
+                                                            {familySearchQuery ? 'No accounts match search' : 'Type to search'}
+                                                        </p>
+                                                    )}
+                                                    {familyCandidates.map(c => {
+                                                        const isSelected = selectedCandidate?.guardian_id === c.guardian_id;
+                                                        return (
+                                                            <div
+                                                                key={c.guardian_id}
+                                                                onClick={() => setSelectedCandidate(c)}
+                                                                className={`p-2 rounded-lg border text-xs cursor-pointer transition-all flex items-center justify-between ${
+                                                                    isSelected ? 'bg-teal-50 border-teal-400 text-teal-900 font-bold' : 'bg-white border-stone-200 hover:bg-stone-50'
+                                                                }`}
+                                                            >
+                                                                <span className="truncate">{c.staff_person_name || c.full_name}</span>
+                                                                <span className="text-[10px] text-muted font-mono">{c.email}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {selectedCandidate && (
+                                                    <div className="p-3 rounded-xl bg-stone-50 border border-teal-300 space-y-2">
+                                                        <p className="text-xs font-semibold text-foreground">
+                                                            Link <strong className="text-primary">{selectedCandidate.staff_person_name || selectedCandidate.full_name}</strong>
+                                                        </p>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-[10px] font-semibold text-muted block mb-0.5">Relationship</label>
+                                                                <select
+                                                                    value={linkRelationship}
+                                                                    onChange={e => setLinkRelationship(e.target.value)}
+                                                                    className="clay-input w-full text-xs py-1 bg-white"
+                                                                >
+                                                                    <option value="mother">Mother</option>
+                                                                    <option value="father">Father</option>
+                                                                    <option value="guardian">Legal Guardian</option>
+                                                                    <option value="parent">Parent</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="flex items-center pt-4">
+                                                                <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={linkIsPrimary}
+                                                                        onChange={e => setLinkIsPrimary(e.target.checked)}
+                                                                        className="w-3.5 h-3.5 accent-primary"
+                                                                    />
+                                                                    Primary
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleExecuteLink}
+                                                            disabled={linkingBusy}
+                                                            className="w-full py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                                        >
+                                                            {linkingBusy ? 'Linking…' : 'Confirm Link'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
@@ -1012,6 +1288,28 @@ const AddUserModal: React.FC<{
     const [attachDesignation, setAttachDesignation] = useState('Teacher');
     const [attachDepartment, setAttachDepartment] = useState('');
 
+    // Student guardian linking state (Phase 4: Teacher-First, Child-Later)
+    interface GuardianCandidate {
+        guardian_id: string;
+        email: string;
+        full_name: string;
+        primary_role: string;
+        roles: string[];
+        is_active: boolean;
+        has_staff_role: boolean;
+        staff_person_name: string | null;
+        designation: string | null;
+        department: string | null;
+        linked_children_count: number;
+    }
+    const [linkGuardian, setLinkGuardian] = useState(false);
+    const [guardianSearchQuery, setGuardianSearchQuery] = useState('');
+    const [guardianSearchResults, setGuardianSearchResults] = useState<GuardianCandidate[]>([]);
+    const [isSearchingGuardian, setIsSearchingGuardian] = useState(false);
+    const [selectedGuardian, setSelectedGuardian] = useState<GuardianCandidate | null>(null);
+    const [guardianRelationship, setGuardianRelationship] = useState('mother');
+    const [isPrimaryGuardian, setIsPrimaryGuardian] = useState(true);
+
     // Recovery-email flow (after user is created)
     const [createdUserId, setCreatedUserId] = useState<string>('');
     const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -1061,6 +1359,12 @@ const AddUserModal: React.FC<{
             setAttachStaffPersonName('');
             setAttachDesignation('Teacher');
             setAttachDepartment('');
+            setLinkGuardian(false);
+            setGuardianSearchQuery('');
+            setGuardianSearchResults([]);
+            setSelectedGuardian(null);
+            setGuardianRelationship('mother');
+            setIsPrimaryGuardian(true);
         }
     }, [isOpen, isSuperadmin, myschoolId, initialRole]);
 
@@ -1094,6 +1398,33 @@ const AddUserModal: React.FC<{
         return () => clearTimeout(timer);
     }, [isOpen, role, teacherMode, schoolId, myschoolId, familySearchQuery]);
 
+    // Live search for guardian candidates when creating student
+    useEffect(() => {
+        if (!isOpen || role !== 'student' || !linkGuardian) return;
+        const targetSchool = schoolId || myschoolId;
+        if (!targetSchool) return;
+
+        const timer = setTimeout(async () => {
+            setIsSearchingGuardian(true);
+            try {
+                const { data, error: searchErr } = await supabase.rpc('fn_search_guardians_for_student', {
+                    _school_id: targetSchool,
+                    _query: guardianSearchQuery.trim()
+                });
+                if (!searchErr && Array.isArray(data)) {
+                    setGuardianSearchResults(data as GuardianCandidate[]);
+                } else {
+                    setGuardianSearchResults([]);
+                }
+            } catch {
+                setGuardianSearchResults([]);
+            } finally {
+                setIsSearchingGuardian(false);
+            }
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [isOpen, role, linkGuardian, schoolId, myschoolId, guardianSearchQuery]);
+
     const handleCreate = async () => {
         // Compose the effective email
         const finalEmail = lockedDomain
@@ -1114,12 +1445,17 @@ const AddUserModal: React.FC<{
         }
         setSaving(true); setError(''); setSuccess('');
         try {
-            const body: Record<string, string> = { email: finalEmail, password, fullName: fullName.trim(), role };
+            const body: Record<string, unknown> = { email: finalEmail, password, fullName: fullName.trim(), role };
             if (schoolId) body.schoolId = schoolId;
             if (role === 'teacher') {
                 if (teacherStaffName.trim()) body.staffPersonName = teacherStaffName.trim();
                 if (teacherDesignation.trim()) body.designation = teacherDesignation.trim();
                 if (teacherDepartment.trim()) body.department = teacherDepartment.trim();
+            }
+            if (role === 'student' && linkGuardian && selectedGuardian) {
+                body.guardianId = selectedGuardian.guardian_id;
+                body.guardianRelationship = guardianRelationship;
+                body.isPrimaryGuardian = isPrimaryGuardian;
             }
 
             await supabase.auth.refreshSession();
@@ -1129,7 +1465,7 @@ const AddUserModal: React.FC<{
             if (data?.error) throw new Error(data.error);
             const newId = data?.user?.id || data?.userId || data?.id || '';
             setCreatedUserId(newId);
-            setSuccess(`User "${fullName}" created. Now add a recovery email below (optional).`);
+            setSuccess(`User "${fullName}" created.${selectedGuardian ? ` Linked to guardian "${selectedGuardian.staff_person_name || selectedGuardian.full_name}".` : ''} Now add a recovery email below (optional).`);
             onCreated();
         } catch (err) {
             setError((err instanceof Error ? err.message : '') || 'Failed to create user.');
@@ -1545,6 +1881,125 @@ const AddUserModal: React.FC<{
                                                         />
                                                     </div>
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {role === 'student' && !userCreated && (
+                                            <div className="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200/80 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <UsersIcon className="w-4 h-4 text-teal-800" />
+                                                        <span className="text-xs font-bold uppercase tracking-wider text-teal-900">Parent / Guardian Account</span>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setLinkGuardian(!linkGuardian); setSelectedGuardian(null); }}
+                                                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                                                            linkGuardian ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                                                        }`}
+                                                    >
+                                                        {linkGuardian ? 'Linking Active' : '+ Link Existing Staff / Guardian'}
+                                                    </button>
+                                                </div>
+                                                <p className="text-[11px] text-teal-800/80 leading-relaxed">
+                                                    If this student's parent is already a teacher, staff member, or guardian at this school, link them here to prevent duplicate accounts.
+                                                </p>
+
+                                                {linkGuardian && (
+                                                    <div className="space-y-3 pt-1 border-t border-teal-200/60">
+                                                        <div>
+                                                            <label className="text-xs font-semibold text-stone-700 block mb-1">
+                                                                Search Existing Staff or Parent
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                value={guardianSearchQuery}
+                                                                onChange={e => setGuardianSearchQuery(e.target.value)}
+                                                                placeholder="Search by name, email..."
+                                                                className="clay-input w-full text-sm bg-white"
+                                                            />
+                                                        </div>
+
+                                                        {/* Candidate list */}
+                                                        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                                                            {isSearchingGuardian && <p className="text-xs text-muted text-center py-2">Searching accounts…</p>}
+                                                            {!isSearchingGuardian && guardianSearchResults.length === 0 && (
+                                                                <p className="text-xs text-stone-400 text-center py-2">
+                                                                    {guardianSearchQuery ? 'No matching accounts found' : 'Type a name or email to search'}
+                                                                </p>
+                                                            )}
+                                                            {guardianSearchResults.map(g => {
+                                                                const isSelected = selectedGuardian?.guardian_id === g.guardian_id;
+                                                                return (
+                                                                    <div
+                                                                        key={g.guardian_id}
+                                                                        onClick={() => setSelectedGuardian(g)}
+                                                                        className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                                                            isSelected ? 'bg-teal-100/90 border-teal-400 ring-2 ring-teal-400/30' : 'bg-white border-stone-200 hover:bg-stone-50'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-bold text-xs text-foreground truncate">
+                                                                                {g.staff_person_name || g.full_name}
+                                                                            </span>
+                                                                            <span className="text-[10px] font-mono text-muted truncate">{g.email}</span>
+                                                                        </div>
+                                                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                                            {g.has_staff_role && (
+                                                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                                                                    Teacher / Staff {g.designation ? `(${g.designation})` : ''}
+                                                                                </span>
+                                                                            )}
+                                                                            {(g.roles || [g.primary_role]).map(r => (
+                                                                                <span key={r} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 uppercase">
+                                                                                    {r}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        {/* Selected Guardian Configuration */}
+                                                        {selectedGuardian && (
+                                                            <div className="p-3 rounded-xl bg-white border border-teal-300 space-y-2">
+                                                                <p className="text-xs font-semibold text-teal-950">
+                                                                    Existing account found: <strong className="text-teal-900">{selectedGuardian.staff_person_name || selectedGuardian.full_name}</strong>
+                                                                </p>
+                                                                <p className="text-[11px] text-stone-600">
+                                                                    Current access: <span className="font-bold text-stone-700">{selectedGuardian.has_staff_role ? 'Teacher / Staff' : selectedGuardian.primary_role}</span> · {selectedGuardian.email}
+                                                                </p>
+                                                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                                                    <div>
+                                                                        <label className="text-[11px] font-semibold text-stone-700 block mb-1">Relationship</label>
+                                                                        <select
+                                                                            value={guardianRelationship}
+                                                                            onChange={e => setGuardianRelationship(e.target.value)}
+                                                                            className="clay-input w-full text-xs py-1.5 bg-stone-50"
+                                                                        >
+                                                                            <option value="mother">Mother</option>
+                                                                            <option value="father">Father</option>
+                                                                            <option value="guardian">Legal Guardian</option>
+                                                                            <option value="parent">Parent</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div className="flex items-center pt-5">
+                                                                        <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isPrimaryGuardian}
+                                                                                onChange={e => setIsPrimaryGuardian(e.target.checked)}
+                                                                                className="w-3.5 h-3.5 accent-teal-600"
+                                                                            />
+                                                                            Primary Guardian
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 

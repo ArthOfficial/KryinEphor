@@ -5286,6 +5286,36 @@ export type Database = {
           linked_students: Json
         }[]
       }
+      fn_search_guardians_for_student: {
+        Args: { _query?: string; _school_id: string }
+        Returns: {
+          guardian_id: string
+          email: string
+          full_name: string
+          primary_role: string
+          roles: string[]
+          is_active: boolean
+          has_staff_role: boolean
+          staff_person_name: string | null
+          designation: string | null
+          department: string | null
+          linked_children_count: number
+        }[]
+      }
+      fn_link_student_guardian: {
+        Args: {
+          _school_id: string
+          _parent_id: string
+          _student_id: string
+          _relationship?: string
+          _is_primary?: boolean
+        }
+        Returns: Json
+      }
+      fn_get_profile_family_links: {
+        Args: { _target_profile_id: string }
+        Returns: Json
+      }
       fn_manual_unlock: {
         Args: { p_actor: string; p_school: string; p_until: string }
         Returns: undefined

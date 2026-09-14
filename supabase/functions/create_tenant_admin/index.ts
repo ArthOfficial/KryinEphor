@@ -299,11 +299,54 @@ Deno.serve(async (req: Request) => {
                     .upsert({
                         profile_id: userData.user.id,
                         school_id: schoolId,
-                        designation: 'Teacher',
-                        department: 'Academics',
+                        designation: typeof payload.designation === 'string' && payload.designation.trim() ? payload.designation.trim() : 'Teacher',
+                        department: typeof payload.department === 'string' && payload.department.trim() ? payload.department.trim() : 'Academics',
                         status: 'active',
-                        staff_person_name: fullName,
+                        staff_person_name: typeof payload.staffPersonName === 'string' && payload.staffPersonName.trim() ? payload.staffPersonName.trim() : fullName,
                     }, { onConflict: 'profile_id,school_id' });
+            }
+
+            if (targetRole === 'student') {
+                // Self-link for combined single-child parent-student experience
+                await supabaseAdmin.from('parent_student').upsert({
+                    parent_id: userData.user.id,
+                    student_id: userData.user.id,
+                    school_id: schoolId,
+                    relationship: 'self_student',
+                    is_primary: true,
+                    status: 'active',
+                }, { onConflict: 'parent_id,student_id' });
+
+                // Link to existing parent/guardian/staff account if specified
+                if (payload.guardianId) {
+                    const { data: guardian } = await supabaseAdmin
+                        .from('profiles')
+                        .select('id, school_id, roles, role')
+                        .eq('id', payload.guardianId)
+                        .eq('school_id', schoolId)
+                        .single();
+
+                    if (guardian) {
+                        await supabaseAdmin.from('parent_student').upsert({
+                            parent_id: guardian.id,
+                            student_id: userData.user.id,
+                            school_id: schoolId,
+                            relationship: payload.guardianRelationship || 'parent',
+                            is_primary: payload.isPrimaryGuardian !== false,
+                            status: 'active',
+                            created_by: caller.id,
+                        }, { onConflict: 'parent_id,student_id' });
+
+                        const existingRoles = Array.isArray(guardian.roles) && guardian.roles.length > 0
+                            ? guardian.roles
+                            : [guardian.role];
+                        if (!existingRoles.includes('parent')) {
+                            await supabaseAdmin.from('profiles').update({
+                                roles: [...existingRoles, 'parent']
+                            }).eq('id', guardian.id);
+                        }
+                    }
+                }
             }
 
             if (membershipError) {

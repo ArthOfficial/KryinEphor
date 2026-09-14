@@ -625,6 +625,34 @@ No password change.
 
 # PHASE 4 — TEACHER-FIRST, CHILD-LATER WORKFLOW
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915003000_phase4_teacher_first_child_later.sql`.
+- [x] **Guardian & Staff Search RPC (`fn_search_guardians_for_student`)**: Created security-definer RPC that lets school admins search existing staff members, teachers, and guardians by email, staff name, or profile name, returning their roles and count of currently linked children.
+- [x] **Secure Guardian Linking RPC (`fn_link_student_guardian`)**: Created security-definer RPC to link a student to a parent/staff account:
+  - Validates tenant isolation (both student and guardian belong to target school).
+  - Upserts into `parent_student` with relationship (`Mother`, `Father`, `Guardian`, etc.).
+  - Safely appends `'parent'` to guardian's `profiles.roles` without altering or removing `'teacher'` or staff privileges.
+  - Automatically creates/verifies `school_memberships` for guardian.
+  - Logs structured audit trail to `audit_logs`.
+- [x] **Bidirectional Family Links RPC (`fn_get_profile_family_links`)**: Security-definer lookup returning linked guardians (for a student) and linked children/students (for a teacher/parent) with relationship and class details.
+- [x] **Edge Function `create_tenant_admin`**:
+  - Automatically provisions self-link in `parent_student` for all newly created students.
+  - If `guardianId` is supplied, securely links the student to the selected guardian/staff account and appends `'parent'` role to guardian.
+- [x] **User Management UI — Add Student with Guardian Link**:
+  - In `AddUserModal`: when creating a `student`, provides `+ Link Existing Staff / Guardian` option.
+  - Live tenant-scoped search with debounce finding existing teachers and guardians.
+  - Clear indicator if candidate is an active Teacher or Staff member (`Sunita Sharma (Teacher)`).
+  - Relationship selector (Mother, Father, Guardian, Parent).
+  - Prevents duplicate logins: links child directly to existing educator or parent account.
+- [x] **User Management UI — UserDrawer Family Relationships**:
+  - Added dedicated `Family Relationships (Phase 4)` card in drawer.
+  - Shows linked guardians for student accounts or linked children for teacher/parent accounts.
+  - Allows linking additional guardians directly from the drawer.
+- [x] **TypeScript Types**: Updated `src/integrations/supabase/types.ts` with Phase 4 RPCs.
+- [x] **Build Verification**: Verified `npm run build` succeeds with 0 errors.
+
 Support the reverse situation.
 
 Example:
