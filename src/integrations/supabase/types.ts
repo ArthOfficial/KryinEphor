@@ -1150,6 +1150,7 @@ export type Database = {
           pan_number: string | null
           profile_id: string
           school_id: string
+          staff_person_name: string | null
           status: string | null
         }
         Insert: {
@@ -1165,6 +1166,7 @@ export type Database = {
           pan_number?: string | null
           profile_id: string
           school_id: string
+          staff_person_name?: string | null
           status?: string | null
         }
         Update: {
@@ -1180,6 +1182,7 @@ export type Database = {
           pan_number?: string | null
           profile_id?: string
           school_id?: string
+          staff_person_name?: string | null
           status?: string | null
         }
         Relationships: [
@@ -3171,26 +3174,35 @@ export type Database = {
       parent_student: {
         Row: {
           created_at: string | null
+          created_by: string | null
           id: string
           is_primary: boolean | null
           parent_id: string
           relationship: string | null
+          school_id: string
+          status: string
           student_id: string
         }
         Insert: {
           created_at?: string | null
+          created_by?: string | null
           id?: string
           is_primary?: boolean | null
           parent_id: string
           relationship?: string | null
+          school_id: string
+          status?: string
           student_id: string
         }
         Update: {
           created_at?: string | null
+          created_by?: string | null
           id?: string
           is_primary?: boolean | null
           parent_id?: string
           relationship?: string | null
+          school_id?: string
+          status?: string
           student_id?: string
         }
         Relationships: [
@@ -5237,6 +5249,23 @@ export type Database = {
           p_period_start: string
         }
         Returns: string
+      }
+      fn_can_access_student: {
+        Args: { target_student_id: string }
+        Returns: boolean
+      }
+      fn_get_my_linked_students: {
+        Args: never
+        Returns: {
+          student_id: string
+          full_name: string | null
+          email: string | null
+          school_id: string
+          relationship: string | null
+          is_primary: boolean | null
+          status: string
+          avatar_url: string | null
+        }[]
       }
       fn_get_my_roles: { Args: never; Returns: string[] }
       fn_get_user_roles: {
