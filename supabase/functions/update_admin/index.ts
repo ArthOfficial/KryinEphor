@@ -426,8 +426,9 @@ Deno.serve(async (req: Request) => {
         // Case 2: Disabling Teacher Access (Atomic Database State Transition)
         let primaryRoleForcedChange = false;
         let metadataSyncWarning: string | null = null;
+        let disableResult: { new_primary_role?: string; primary_role_changed?: boolean; [key: string]: unknown } | null = null;
         if (hadTeacherRole && !willHaveTeacher && effectiveSchool) {
-            const { data: disableResult, error: disableRpcError } = await supabaseAdmin.rpc(
+            const { data, error: disableRpcError } = await supabaseAdmin.rpc(
                 'fn_disable_teacher_access_internal',
                 {
                     _school_id: effectiveSchool,
@@ -436,6 +437,7 @@ Deno.serve(async (req: Request) => {
                     _clear_assignments: Boolean(payload.clearAssignments),
                 }
             );
+            disableResult = data as typeof disableResult;
 
             if (disableRpcError) {
                 return new Response(JSON.stringify({ error: disableRpcError.message }), {
@@ -507,7 +509,7 @@ Deno.serve(async (req: Request) => {
             if (password) actions.push('password_reset');
             if (email && email !== targetProfile.email) actions.push('email_change');
             if (role && role !== targetProfile.role) actions.push('role_change');
-            if (primaryRoleForcedChange) actions.push('role_transition_to_parent');
+            if (primaryRoleForcedChange) actions.push('role_transition');
             if (typeof isActive === 'boolean' && isActive !== (targetProfile as { is_active?: boolean }).is_active) {
                 actions.push(isActive ? 'reactivate' : 'deactivate');
             }
@@ -534,7 +536,7 @@ Deno.serve(async (req: Request) => {
                         },
                         next: {
                             email: email ?? undefined,
-                            role: primaryRoleForcedChange ? 'parent' : (role ?? undefined),
+                            role: primaryRoleForcedChange ? disableResult?.new_primary_role : (role ?? undefined),
                             school_id: schoolId !== undefined ? (schoolId || null) : undefined,
                             is_active: typeof isActive === 'boolean' ? isActive : undefined,
                             has_teacher: willHaveTeacher,
