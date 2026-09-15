@@ -65,24 +65,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [staffPinStatus, setStaffPinStatus] = useState<StaffPinStatus | null>(null);
     const [isStaffPinModalOpen, setIsStaffPinModalOpen] = useState(false);
 
-    // Phase 6 Persona & View Switcher state
+    // Phase 6 & 7 Persona & Multiple Children state
     const [linkedStudents, setLinkedStudents] = useState<LinkedStudentPersona[]>([]);
     const [activeStudentId, setActiveStudentIdState] = useState<string | null>(() => {
         try {
-            return localStorage.getItem('active_student_id') || null;
+            return sessionStorage.getItem('ky_active_student_id') || localStorage.getItem('ky_active_student_id') || null;
         } catch {
             return null;
         }
     });
 
     const setActiveStudentId = useCallback((id: string | null) => {
+        if (id) {
+            // Verify that the requested student exists in the authorized linked students
+            const isAuthorized = linkedStudents.some(s => s.studentId === id);
+            if (!isAuthorized && linkedStudents.length > 0) {
+                // Reject unauthorized client selection
+                return;
+            }
+        }
         setActiveStudentIdState(id);
         if (id) {
             try {
-                localStorage.setItem('active_student_id', id);
+                sessionStorage.setItem('ky_active_student_id', id);
+                localStorage.setItem('ky_active_student_id', id);
+            } catch { /* ignore */ }
+        } else {
+            try {
+                sessionStorage.removeItem('ky_active_student_id');
+                localStorage.removeItem('ky_active_student_id');
             } catch { /* ignore */ }
         }
-    }, []);
+    }, [linkedStudents]);
 
     const refreshPersonaSummary = useCallback(async () => {
         try {
@@ -96,19 +110,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     schoolId: s.school_id,
                     relationship: s.relationship,
                     isPrimary: Boolean(s.is_primary),
-                    avatarUrl: s.avatar_url ?? null
+                    avatarUrl: s.avatar_url ?? null,
+                    className: s.class_name ?? null,
+                    sectionName: s.section_name ?? null,
+                    status: s.status ?? 'active'
                 }));
                 setLinkedStudents(parsed);
 
-                if (parsed.length > 0) {
-                    const stored = localStorage.getItem('active_student_id');
-                    const found = parsed.find(s => s.studentId === stored);
-                    if (found) {
-                        setActiveStudentIdState(found.studentId);
-                    } else {
-                        const primary = parsed.find(s => s.isPrimary) || parsed[0];
-                        setActiveStudentIdState(primary.studentId);
+                // Authoritative validation: verify stored active child still exists in authorized list
+                const storedId = (() => {
+                    try {
+                        return sessionStorage.getItem('ky_active_student_id') || localStorage.getItem('ky_active_student_id') || null;
+                    } catch {
+                        return null;
                     }
+                })();
+
+                if (parsed.length > 0) {
+                    const validMatch = storedId ? parsed.find(s => s.studentId === storedId) : null;
+                    if (validMatch) {
+                        setActiveStudentIdState(validMatch.studentId);
+                    } else {
+                        // Fall back to primary child, or first active child
+                        const fallbackChild = parsed.find(s => s.isPrimary) || parsed[0];
+                        setActiveStudentIdState(fallbackChild.studentId);
+                        try {
+                            sessionStorage.setItem('ky_active_student_id', fallbackChild.studentId);
+                            localStorage.setItem('ky_active_student_id', fallbackChild.studentId);
+                        } catch { /* ignore */ }
+                    }
+                } else {
+                    // No authorized children linked
+                    setActiveStudentIdState(null);
+                    try {
+                        sessionStorage.removeItem('ky_active_student_id');
+                        localStorage.removeItem('ky_active_student_id');
+                    } catch { /* ignore */ }
                 }
             }
         } catch { /* ignore */ }
@@ -429,6 +466,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setRoles([]);
                     setLinkedStudents([]);
                     setActiveStudentIdState(null);
+                    try {
+                        sessionStorage.removeItem('ky_active_student_id');
+                        localStorage.removeItem('ky_active_student_id');
+                    } catch { /* ignore */ }
                     try {
                         sessionStorage.setItem('post_signout_toast', 'Logged out successfully! Come back soon.');
                     } catch { /* ignore quota / privacy-mode errors */ }

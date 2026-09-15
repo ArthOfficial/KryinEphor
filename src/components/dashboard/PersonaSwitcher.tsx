@@ -167,7 +167,11 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                             >
                                                 <div className="flex items-center gap-1.5 truncate">
                                                     <GraduationCap className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-white' : 'text-emerald-700'}`} />
-                                                    {!collapsed && <span className="truncate">{child.fullName}</span>}
+                                                    {!collapsed && (
+                                                        <span className="truncate">
+                                                            {child.fullName}{child.className ? ` (${child.className})` : ''}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {!collapsed && (
                                                     <span className={`text-[9px] uppercase px-1 rounded ${isCurrent ? 'bg-emerald-700 text-emerald-100' : 'text-stone-400'}`}>
@@ -348,7 +352,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                         >
                                             <div className="flex items-center gap-2 truncate">
                                                 <GraduationCap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                                <span className="truncate">{child.fullName}</span>
+                                                <span className="truncate">{child.fullName}{child.className ? ` · ${child.className}` : ''}</span>
                                             </div>
                                             {role === 'student' && activeStudentId === child.studentId && (
                                                 <Check className="w-3 h-3 text-emerald-600 shrink-0" />

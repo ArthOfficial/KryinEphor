@@ -5265,6 +5265,21 @@ export type Database = {
           is_primary: boolean | null
           status: string
           avatar_url: string | null
+          class_name: string | null
+          section_name: string | null
+        }[]
+      }
+      fn_student_performance_summary: {
+        Args: { target_student_id?: string | null }
+        Returns: {
+          exam_subject_id: string
+          exam_name: string
+          subject_name: string
+          chapter_name: string | null
+          exam_date: string | null
+          max_marks: number
+          your_score: number | null
+          class_average: number | null
         }[]
       }
       fn_get_my_roles: { Args: never; Returns: string[] }

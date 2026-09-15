@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
 import StudentDashboardExperience from '../components/dashboard/StudentDashboardExperience';
+import { ChildSelector } from '../components/dashboard/ChildSelector';
 import {
     Users, Presentation, Coins, GraduationCap, ArrowUp, UserPlus, Receipt,
     AlertTriangle, MessageSquare, Trophy, Calendar, Sparkles, Loader2, ClipboardCheck, BookOpen, ArrowLeftRight,
@@ -233,7 +234,11 @@ const TeacherClasses: React.FC<{ teacherId: string; schoolId: string | null }> =
 };
 
 const Dashboard: React.FC = () => {
-    const { user, role, roles, switchDashboardRole } = useAuth();
+    const { user, role, roles, switchDashboardRole, linkedStudents, activeStudentId } = useAuth();
+    const effectiveStudentId = activeStudentId
+        ?? linkedStudents.find(s => s.isPrimary)?.studentId
+        ?? linkedStudents[0]?.studentId
+        ?? null;
 
     const navigate = useNavigate();
     const qc = useQueryClient();
@@ -318,13 +323,32 @@ const Dashboard: React.FC = () => {
                         <div className="absolute -top-20 -right-20 w-64 h-64 bg-teal-100 rounded-full blur-3xl opacity-50"></div>
                     </div>
 
-                    {(role === 'student' || role === 'parent') && user && <StudentDashboardExperience
-                        studentId={user.id}
-                        schoolId={user.schoolId ?? null}
-                        feed={activity}
-                        isFeedLoading={activityQuery.isLoading}
-                        isParentView={role === 'parent'}
-                    />}
+                    {(role === 'student' || role === 'parent') && (
+                        <div className="space-y-6 animate-fade-up">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <ChildSelector />
+                            </div>
+
+                            {effectiveStudentId ? (
+                                <StudentDashboardExperience
+                                    key={effectiveStudentId}
+                                    studentId={effectiveStudentId}
+                                    schoolId={user?.schoolId ?? null}
+                                    feed={activity}
+                                    isFeedLoading={activityQuery.isLoading}
+                                    isParentView={role === 'parent'}
+                                />
+                            ) : (
+                                <div className="clay-card p-10 text-center text-stone-500 rounded-3xl">
+                                    <GraduationCap className="w-12 h-12 mx-auto text-stone-300 mb-3" />
+                                    <h3 className="text-lg font-bold text-foreground">No Student Profile Linked</h3>
+                                    <p className="text-sm text-muted mt-1 max-w-md mx-auto">
+                                        No active student profile is currently linked to this family account. Please contact your school administration to link your ward's profile.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {role !== 'student' && role !== 'parent' && <>
                     {/* KPI Grid — REAL data */}

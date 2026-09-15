@@ -1053,6 +1053,40 @@ Internally maintain clear authorization concepts.
 
 # PHASE 7 — MULTIPLE CHILDREN
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915020000_phase7_multiple_children_support.sql`.
+- [x] **Hardened Server-Side Access Rule (`fn_can_access_student`)**:
+  - Validates `auth.uid()` authentication, non-null `target_student_id`, active relationship in `public.parent_student`, matching school/tenant isolation, and non-deleted student profile.
+  - Allows direct self-access only if caller has canonical student role on their profile.
+  - Safe `search_path = public, extensions`, `SECURITY DEFINER`, revoked from public/anon, granted exclusively to authenticated.
+- [x] **Enhanced Persona & Linked Students RPCs**:
+  - `public.fn_get_my_linked_students()` returns canonical active `class_name` and `section_name` via lateral join on current `class_enrollments`.
+  - Deterministic ordering: primary student first, followed by alphabetical by full name and student ID.
+  - `public.fn_get_my_persona_summary()` includes full class, section, relationship, and status info in `linked_students` JSON.
+- [x] **Parametrized Performance Summary RPC (`fn_student_performance_summary`)**:
+  - Accepts `target_student_id UUID DEFAULT NULL`. If specified, validates `fn_can_access_student(target_student_id)`; if null, resolves primary/first authorized child.
+  - Prevents information leakage on unauthorized explicit student IDs.
+- [x] **Extended Row Level Security (RLS)**:
+  - Additively augmented SELECT policies on `attendance`, `invoices`, `invoice_items`, `student_fee_assignments`, `additional_charges`, `transactions`, `class_enrollments`, and `exam_results` with `OR public.fn_can_access_student(...)`.
+  - Preserves all existing Superadmin, Admin, Teacher, Accountant, and Student access intact.
+- [x] **Auth Context & Dynamic Active Student Validation**:
+  - `AuthContext.tsx` & `authContextValue.ts`: updated `LinkedStudentPersona` with `className`, `sectionName`, `status`.
+  - Validates `activeStudentId` on every refresh against authorized `linkedStudents`. If an admin unlinks a child mid-session, the unlinked ID is rejected, cleared, and falls back to primary/first authorized student (or `null`).
+  - No fallback to `user.id` as a student ID.
+- [x] **High-End Child Selector Component (`ChildSelector.tsx`)**:
+  - Displays context badge for single-child accounts without redundant dropdown.
+  - Interactive dropdown menu for 2+ children with active child indicator, class badge, primary flag, and smooth switching.
+  - Shows clean informational card if 0 student records are linked.
+- [x] **Child-Scoped Module Integration**:
+  - `Dashboard.tsx` & `StudentDashboardExperience.tsx`: uses `effectiveStudentId`, `key={effectiveStudentId}` for zero-leakage remounting, integrated with `ChildSelector`.
+  - `StudentFees.tsx`: scoped to `['student-fees', effectiveStudentId]`, integrated with `ChildSelector`.
+  - `StudentTests.tsx`: scoped to `['student-tests', effectiveStudentId]`, integrated with `ChildSelector`.
+  - `StudentPerformance.tsx`: scoped to `['student-performance', effectiveStudentId]`, integrated with `ChildSelector`.
+  - `PersonaSwitcher.tsx`: enhanced student rows with class names (e.g. `Aarav · Class 5A`).
+- [x] **Build & Security Verification**: Verified `npm run build` succeeds with 0 errors.
+
 Add proper one-parent/family-account → many-students support.
 
 There must be NO arbitrary maximum such as 2 children.

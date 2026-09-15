@@ -33,6 +33,9 @@ export interface LinkedStudentPersona {
     relationship: string;
     isPrimary: boolean;
     avatarUrl?: string | null;
+    className?: string | null;
+    sectionName?: string | null;
+    status?: string | null;
 }
 
 export interface AuthContextType {
