@@ -2,7 +2,7 @@
 -- Description: Phase 9 - Safely disable/remove Teacher Access, snapshot assignment history, revoke unlocks, and deny stale JWT operations
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 1. DYNAMIC CHECK CONSTRAINT ON employees.status & AUDIT TABLE DEFENSE
+-- 1. DYNAMIC CHECK CONSTRAINT ON employees.status & AUDIT TABLE STANDARDIZATION
 -- ═══════════════════════════════════════════════════════════════════════════
 DO $$
 DECLARE
@@ -20,12 +20,32 @@ BEGIN
             CHECK (status IN ('active', 'inactive', 'resigned', 'terminated', 'on_leave', 'retired'));
     END IF;
 
+    -- Ensure canonical staff_person_name column exists on employees
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'employees' AND column_name = 'staff_person_name'
+    ) THEN
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS staff_person_name TEXT;
+    END IF;
+
     -- Ensure canonical admin_action_audit table columns exist
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'admin_action_audit' AND column_name = 'detail'
+    ) THEN
+        ALTER TABLE public.admin_action_audit ADD COLUMN IF NOT EXISTS detail JSONB DEFAULT '{}'::jsonb;
+    END IF;
+
+    -- Standardize: If `details` column exists from earlier migrations, migrate data into `detail` and drop `details`
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'admin_action_audit' AND column_name = 'details'
     ) THEN
-        ALTER TABLE public.admin_action_audit ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb;
+        UPDATE public.admin_action_audit
+        SET detail = COALESCE(detail, details)
+        WHERE details IS NOT NULL AND (detail IS NULL OR detail = '{}'::jsonb);
+
+        ALTER TABLE public.admin_action_audit DROP COLUMN IF EXISTS details;
     END IF;
 
     IF NOT EXISTS (
@@ -118,7 +138,7 @@ GRANT ALL ON public.teacher_assignment_history TO service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 4. ACTIVE ASSIGNMENTS DISCOVERY RPC
--- Inspects all 5 operational teaching areas
+-- Inspects all 5 operational teaching areas with strict tenant security
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE OR REPLACE FUNCTION public.fn_get_teacher_active_assignments(
     _school_id UUID,
@@ -132,8 +152,10 @@ STABLE
 AS $$
 DECLARE
     v_caller_id UUID := auth.uid();
+    v_is_superadmin BOOLEAN := FALSE;
+    v_is_school_admin BOOLEAN := FALSE;
+    v_caller_school_id UUID;
     v_effective_school UUID;
-    v_is_admin BOOLEAN := FALSE;
     v_classes JSONB := '[]'::JSONB;
     v_subjects JSONB := '[]'::JSONB;
     v_subject_teachers JSONB := '[]'::JSONB;
@@ -145,22 +167,36 @@ BEGIN
         RAISE EXCEPTION 'Authentication required';
     END IF;
 
-    -- Validate caller admin/superadmin privileges & school tenancy
-    SELECT (
-        p.role = 'superadmin'
-        OR (p.role IN ('admin', 'principal') AND (p.school_id = _school_id OR _school_id IS NULL))
-        OR EXISTS (
-            SELECT 1 FROM public.user_roles ur
-            WHERE ur.user_id = v_caller_id
-              AND ur.role IN ('superadmin', 'admin')
-        )
-    ), COALESCE(_school_id, p.school_id)
-    INTO v_is_admin, v_effective_school
+    -- Strict tenant authorization check:
+    -- Superadmin can inspect specified school or their own.
+    -- School admin / Principal may ONLY inspect their own school (cross-school probe strictly rejected).
+    SELECT 
+        (p.role = 'superadmin' OR EXISTS (
+            SELECT 1 FROM public.user_roles ur 
+            WHERE ur.user_id = v_caller_id AND ur.role = 'superadmin'
+        )),
+        (p.role IN ('admin', 'principal') OR EXISTS (
+            SELECT 1 FROM public.user_roles ur 
+            WHERE ur.user_id = v_caller_id AND ur.role IN ('admin', 'principal')
+        )),
+        p.school_id
+    INTO v_is_superadmin, v_is_school_admin, v_caller_school_id
     FROM public.profiles p
     WHERE p.id = v_caller_id;
 
-    IF NOT v_is_admin THEN
+    IF v_is_superadmin THEN
+        v_effective_school := COALESCE(_school_id, v_caller_school_id);
+    ELSIF v_is_school_admin THEN
+        IF _school_id IS NOT NULL AND _school_id <> v_caller_school_id THEN
+            RAISE EXCEPTION 'Unauthorized: School admin cannot access teacher assignments for another school';
+        END IF;
+        v_effective_school := v_caller_school_id;
+    ELSE
         RAISE EXCEPTION 'Unauthorized: only school administrators may inspect teacher assignments';
+    END IF;
+
+    IF v_effective_school IS NULL THEN
+        RAISE EXCEPTION 'School context required';
     END IF;
 
     -- 1. Classes where this user is Class Teacher
@@ -320,7 +356,8 @@ DECLARE
     v_primary_role_changed BOOLEAN := FALSE;
     v_revoked_session_count INT := 0;
     v_active_children_count INT := 0;
-    v_has_other_role BOOLEAN := FALSE;
+    v_has_parent_role BOOLEAN := FALSE;
+    v_other_role TEXT := NULL;
     v_cleared_classes INT := 0;
     v_cleared_subjects INT := 0;
     v_cleared_st INT := 0;
@@ -391,7 +428,7 @@ BEGIN
         GET DIAGNOSTICS v_cleared_classes = ROW_COUNT;
 
         UPDATE public.classes
-        SET teacher_id = NULL, updated_at = now()
+        SET teacher_id = NULL
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
         -- B. Subjects
@@ -411,7 +448,7 @@ BEGIN
         GET DIAGNOSTICS v_cleared_subjects = ROW_COUNT;
 
         UPDATE public.subjects
-        SET teacher_id = NULL, updated_at = now()
+        SET teacher_id = NULL
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
         -- C. Subject Teachers
@@ -455,8 +492,7 @@ BEGIN
         SET teacher_id = NULL
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
-        -- E. Online Classes
-        -- assigned_at is set to NULL; source_row_created_at preserved in metadata
+        -- E. Online Classes (Clears operational sessions without alias bugs)
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
             assignment_type, subject_id, subject_name_at_time, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
@@ -476,8 +512,9 @@ BEGIN
 
         UPDATE public.online_classes
         SET teacher_id = NULL
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id
-          AND (oc.status = 'live' OR (oc.status = 'scheduled' AND oc.scheduled_at >= now()))
+        WHERE teacher_id = _target_profile_id
+          AND school_id = _school_id
+          AND (status = 'live' OR (status = 'scheduled' AND scheduled_at >= now()))
           AND deleted_at IS NULL;
     END IF;
 
@@ -492,8 +529,7 @@ BEGIN
     -- 6. Inactivate Employee Record
     IF v_existing_emp.id IS NOT NULL THEN
         UPDATE public.employees
-        SET status = 'inactive',
-            updated_at = now()
+        SET status = 'inactive'
         WHERE id = v_existing_emp.id;
     END IF;
 
@@ -502,7 +538,7 @@ BEGIN
     WHERE user_id = _target_profile_id
       AND role = 'teacher';
 
-    -- 8. Handle Primary Role Transition (Case A, B, C)
+    -- 8. Handle Primary Role Transition
     IF v_target_profile.role = 'teacher' THEN
         -- Check if user has active linked children
         SELECT COUNT(*) INTO v_active_children_count
@@ -511,15 +547,15 @@ BEGIN
           AND school_id = _school_id
           AND status = 'active';
 
-        -- Check if user has any other role assigned
+        -- Check if user already has 'parent' role explicitly in user_roles
         SELECT EXISTS (
             SELECT 1 FROM public.user_roles
             WHERE user_id = _target_profile_id
-              AND role <> 'teacher'
-        ) INTO v_has_other_role;
+              AND role = 'parent'
+        ) INTO v_has_parent_role;
 
-        IF v_active_children_count > 0 OR v_has_other_role THEN
-            -- Case B: Transition primary role to parent
+        IF v_active_children_count > 0 OR v_has_parent_role THEN
+            -- Legitimate parent persona exists: transition primary role to parent
             v_new_role := 'parent';
             UPDATE public.profiles
             SET role = 'parent',
@@ -527,23 +563,55 @@ BEGIN
             WHERE id = _target_profile_id;
             v_primary_role_changed := TRUE;
 
-            -- Ensure parent role is present in user_roles
             INSERT INTO public.user_roles (user_id, role)
             VALUES (_target_profile_id, 'parent')
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (user_id, role) DO NOTHING;
+
         ELSE
-            -- Case C: Teacher was primary and no other persona exists -> REJECT
-            RAISE EXCEPTION 'CANNOT_DISABLE_NO_OTHER_PERSONA: Cannot disable Teacher access on an account with no other active persona (e.g. parent or student). Reassign role or deactivate account.';
+            -- No parent persona: check for any other valid remaining role in user_roles
+            SELECT role INTO v_other_role
+            FROM public.user_roles
+            WHERE user_id = _target_profile_id
+              AND role <> 'teacher'
+            ORDER BY (
+                CASE role
+                    WHEN 'admin' THEN 1
+                    WHEN 'principal' THEN 2
+                    WHEN 'accountant' THEN 3
+                    WHEN 'receptionist' THEN 4
+                    WHEN 'staff' THEN 5
+                    WHEN 'student' THEN 6
+                    ELSE 7
+                END
+            ) ASC
+            LIMIT 1;
+
+            IF v_other_role IS NOT NULL THEN
+                -- Promote the remaining valid role to primary (never make them parent!)
+                v_new_role := v_other_role;
+                UPDATE public.profiles
+                SET role = v_other_role,
+                    updated_at = now()
+                WHERE id = _target_profile_id;
+                v_primary_role_changed := TRUE;
+            ELSE
+                -- Teacher only with no other persona exists -> REJECT
+                RAISE EXCEPTION 'CANNOT_DISABLE_NO_OTHER_PERSONA: Cannot disable Teacher access on an account with no other active persona (e.g. parent, staff, or student). Reassign role or deactivate account.';
+            END IF;
         END IF;
     END IF;
 
-    -- 9. Canonical Audit Logging in admin_action_audit
+    -- 9. Canonical Audit Logging in admin_action_audit using `detail`
     INSERT INTO public.admin_action_audit (
-        id, actor_id, school_id, target_user_id, action, details, created_at
+        actor_id,
+        actor_role,
+        target_user_id,
+        action,
+        detail,
+        created_at
     ) VALUES (
-        gen_random_uuid(),
         _actor_profile_id,
-        _school_id,
+        'admin',
         _target_profile_id,
         'teacher_access_disabled',
         jsonb_build_object(

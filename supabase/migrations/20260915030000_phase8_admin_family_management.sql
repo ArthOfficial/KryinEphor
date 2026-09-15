@@ -2,6 +2,8 @@
 -- Description: Phase 8 - Admin / Superadmin Family Management UI backend functions, unique primary index, and relationship mutations.
 
 -- 1. CLEAN UP LEGACY MULTI-PRIMARY ROWS BEFORE INDEX CREATION
+ALTER TABLE public.parent_student ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
 DO $$
 BEGIN
     WITH ranked_primaries AS (

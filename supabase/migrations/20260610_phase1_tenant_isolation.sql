@@ -171,8 +171,12 @@ REVOKE ALL ON public.invoice_aggregates FROM anon;
 -- ════════════════════════════════════════════════════════════════════
 -- 5. MOVE pg_trgm EXTENSION (Problem #32)
 -- ════════════════════════════════════════════════════════════════════
-CREATE SCHEMA IF NOT EXISTS extensions;
-ALTER EXTENSION IF EXISTS pg_trgm SET SCHEMA extensions;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        ALTER EXTENSION pg_trgm SET SCHEMA extensions;
+    END IF;
+END $$;
 
 
 -- ════════════════════════════════════════════════════════════════════
@@ -217,14 +221,20 @@ ALTER TABLE public.password_resets
 -- ════════════════════════════════════════════════════════════════════
 
 -- Invoices: prevent duplicate invoice numbers per school
-ALTER TABLE public.invoices
-  ADD CONSTRAINT IF NOT EXISTS uq_invoice_number
-    UNIQUE (school_id, invoice_number);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_invoice_number') THEN
+    ALTER TABLE public.invoices ADD CONSTRAINT uq_invoice_number UNIQUE (school_id, invoice_number);
+  END IF;
+END $$;
 
 -- Timetable: prevent overlapping slots per class
-ALTER TABLE public.timetable
-  ADD CONSTRAINT IF NOT EXISTS uq_timetable_slot
-    UNIQUE (school_id, class_id, day_of_week, start_time);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_timetable_slot') THEN
+    ALTER TABLE public.timetable ADD CONSTRAINT uq_timetable_slot UNIQUE (school_id, class_id, day_of_week, start_time);
+  END IF;
+END $$;
 
 -- Employees: prevent duplicate employee codes per school
 DO $$

@@ -22,6 +22,9 @@ BEGIN
   END IF;
 END $$;
 
+-- Allow self_student and flexible family relationships
+ALTER TABLE public.parent_student DROP CONSTRAINT IF EXISTS parent_student_relationship_check;
+
 -- Prevent duplicate relationships for the same parent and student
 DO $$
 BEGIN

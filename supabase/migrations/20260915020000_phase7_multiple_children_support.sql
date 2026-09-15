@@ -62,6 +62,7 @@ GRANT EXECUTE ON FUNCTION public.fn_can_access_student(UUID) TO authenticated;
 
 
 -- 2. ENHANCE fn_get_my_linked_students WITH ACTIVE CLASS & SECTION
+DROP FUNCTION IF EXISTS public.fn_get_my_linked_students();
 CREATE OR REPLACE FUNCTION public.fn_get_my_linked_students()
 RETURNS TABLE (
   student_id UUID,
@@ -134,7 +135,7 @@ AS $$
     JOIN public.classes c ON c.id = ce.class_id AND c.deleted_at IS NULL
     WHERE ce.student_id = s.student_id
       AND ce.deleted_at IS NULL
-    ORDER BY ce.enrolled_at DESC NULLS LAST, ce.created_at DESC NULLS LAST
+    ORDER BY ce.enrolled_at DESC NULLS LAST, c.created_at DESC NULLS LAST
     LIMIT 1
   ) enrollment ON TRUE
   ORDER BY s.is_primary DESC, s.full_name ASC, s.student_id ASC;

@@ -1440,8 +1440,14 @@ Superadmin must not accidentally bypass relational validation merely because the
   - Enforces safe paths: either `Cancel & Reassign Manually` or checkbox `[x] Clear current assignments and archive to assignment history as part of Teacher removal` before the `Disable Teacher Access` button is enabled.
   - Zero historical destruction: prominent notice that past marks, attendance, and exam entries remain preserved under the educator's name.
   - Invalidates `['teachers', 'bySchool']`, `['user-management-bundle']`, and `['persona-summary']` query caches.
+- [x] **Post-Implementation Review Hardening (Live DB Verified)**:
+  - **Issue 1 (SQL Alias Bug)**: Fixed `online_classes` UPDATE in `fn_disable_teacher_access_internal` by removing invalid `oc.` table alias prefixes.
+  - **Issue 2 (Cross-Tenant Isolation)**: Strict separation in `fn_get_teacher_active_assignments` ensuring an additional `admin` role in `user_roles` cannot bypass school boundaries; only platform Superadmins can inspect cross-school.
+  - **Issue 3 (Multi-Role Primary Promotion)**: Differentiates parent persona with active children from other valid staff roles (`accountant`, `receptionist`, etc.). If a teacher with no children is also an accountant, disabling teacher promotes them to `accountant` (never falsely to `parent`).
+  - **Issue 4 (Audit Column Standardization)**: Standardized canonical `admin_action_audit` payload column to `detail` across database and Edge Function, migrating legacy `details` columns.
+  - **Live Remote DB Verification**: Applied migrations 1 through 9 sequentially against the remote Supabase database, executed all 6 test scenarios (cross-tenant rejection, solo-teacher rejection, accountant promotion, parent promotion, assignment clearing & snapshotting, and canonical audit log), and verified `npm run build` succeeds with 0 errors.
 - [x] **Build & Verification**:
-  - `npm run build` ran and succeeded cleanly (0 errors, 5.63s).
+  - `npm run build` ran and succeeded cleanly (0 errors, 10.81s).
 
 Example:
 

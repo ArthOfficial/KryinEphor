@@ -447,11 +447,11 @@ Deno.serve(async (req: Request) => {
             // Decoupled Auth app_metadata synchronization:
             // The DB transaction has committed and teacher access is revoked.
             // If auth metadata sync fails, teacher STILL remains disabled in the authoritative DB.
-            if (disableResult?.primary_role_changed && disableResult?.new_primary_role === 'parent') {
+            if (disableResult?.primary_role_changed && disableResult?.new_primary_role) {
                 primaryRoleForcedChange = true;
                 try {
                     await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-                        app_metadata: { role: 'parent', school_id: effectiveSchool }
+                        app_metadata: { role: disableResult.new_primary_role, school_id: effectiveSchool }
                     });
                 } catch (authErr) {
                     metadataSyncWarning = 'Teacher access was securely revoked in database, but Auth metadata could not be refreshed immediately.';
@@ -464,7 +464,7 @@ Deno.serve(async (req: Request) => {
         // ADDITIONAL ROLES — sync user_roles rows other than the primary.
         // ═══════════════════════════════════════════════════════════════
         if (Array.isArray(additionalRoles) || willHaveTeacher !== hadTeacherRole) {
-            const primary = (primaryRoleForcedChange ? 'parent' : (role || targetProfile.role)) as string;
+            const primary = (primaryRoleForcedChange ? (disableResult?.new_primary_role || 'parent') : (role || targetProfile.role)) as string;
             let desiredAdditional = Array.isArray(additionalRoles) ? [...additionalRoles] : (existingUserRoles?.map(r => r.role).filter(r => r !== primary) || []);
 
             if (willHaveTeacher && primary !== 'teacher' && !desiredAdditional.includes('teacher')) {
