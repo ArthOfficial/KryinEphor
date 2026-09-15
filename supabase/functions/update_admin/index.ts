@@ -520,6 +520,7 @@ Deno.serve(async (req: Request) => {
 
             if (actions.length > 0) {
                 await supabaseAdmin.from('admin_action_audit').insert({
+                    school_id: effectiveSchool,
                     actor_id: actorUserId,
                     actor_role: callerProfile.role,
                     target_user_id: targetUserId,

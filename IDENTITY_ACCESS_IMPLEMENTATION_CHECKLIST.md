@@ -1446,8 +1446,20 @@ Superadmin must not accidentally bypass relational validation merely because the
   - **Issue 3 (Multi-Role Primary Promotion)**: Differentiates parent persona with active children from other valid staff roles (`accountant`, `receptionist`, etc.). If a teacher with no children is also an accountant, disabling teacher promotes them to `accountant` (never falsely to `parent`).
   - **Issue 4 (Audit Column Standardization)**: Standardized canonical `admin_action_audit` payload column to `detail` across database and Edge Function, migrating legacy `details` columns.
   - **Live Remote DB Verification**: Applied migrations 1 through 9 sequentially against the remote Supabase database, executed all 6 test scenarios (cross-tenant rejection, solo-teacher rejection, accountant promotion, parent promotion, assignment clearing & snapshotting, and canonical audit log), and verified `npm run build` succeeds with 0 errors.
+- [x] **Additive Post-Verification Hardening Migration (`20260915041000_phase9_post_verification_hardening.sql`)**:
+  - **Restricted `teacher_assignment_history` SELECT RLS**: Dropped overly broad authenticated school-wide SELECT policy (`teacher_assignment_history_school_select`) and replaced with `teacher_assignment_history_admin_select`. Students and Parents in the school now receive 0 rows. Access is strictly granted to platform Superadmins and same-school Admins/Principals.
+  - **Accurate Audit Attribution**: Updated `fn_disable_teacher_access_internal` to dynamically fetch the caller's actual role (`profiles.role`) rather than hardcoding `'admin'`. A Superadmin action is logged as `actor_role = 'superadmin'`, while a School Admin action is logged as `actor_role = 'admin'`. Populated top-level `admin_action_audit.school_id = _school_id`.
+  - **Live Verification**: Applied migration `20260915041000` to remote database and recorded it in `supabase_migrations.schema_migrations`. Automated tests verified:
+    1. Student sees 0 history rows.
+    2. Parent sees 0 history rows.
+    3. Admin of other school sees 0 history rows.
+    4. School Admin sees own-school history rows.
+    5. Superadmin sees permitted history rows.
+    6. Admin disable logs `actor_role = 'admin'` and top-level `school_id`.
+    7. Superadmin disable logs `actor_role = 'superadmin'` and top-level `school_id`.
+    8. All 6 core Phase 9 scenarios re-verified successfully.
 - [x] **Build & Verification**:
-  - `npm run build` ran and succeeded cleanly (0 errors, 10.81s).
+  - `npm run build` ran and succeeded cleanly (0 errors, 11.69s).
 
 Example:
 
