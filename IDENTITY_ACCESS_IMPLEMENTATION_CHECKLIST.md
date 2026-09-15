@@ -1417,8 +1417,8 @@ Superadmin must not accidentally bypass relational validation merely because the
 ### Implemented & Verified Tasks:
 - [x] **Additive Migration**: Created `supabase/migrations/20260915040000_phase9_remove_teacher_access.sql`.
   - Dynamic check constraint validation on `employees.status` ensuring `'inactive'` is supported while preserving all existing allowed statuses (`active`, `inactive`, `resigned`, `terminated`, `on_leave`, `retired`).
-  - Hardened central authorization helper `public.has_role(_user_id, _role)`: for `_role = 'teacher'`, strictly mandates active teacher role AND active, non-deleted staff membership (`employees.status = 'active'`). Immediate server-side denial for stale browser JWTs upon deactivation.
-  - Created `public.teacher_assignment_history` table with `teacher_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL`, `teacher_name_at_time`, `employee_id_at_time`, `designation_at_time`, original `assigned_at` timestamp preservation, `ended_at = now()`, `ended_reason = 'teacher_access_disabled'`, and full operational metadata.
+  - Hardened central authorization helper `public.has_role(_user_id, _role)`: for `_role = 'teacher'`, strictly mandates active teacher role AND active, non-deleted staff membership (`employees.status = 'active'`). Immediate server-side denial for stale browser JWTs upon deactivation, while preserving distinct separation from Staff PIN / unlock session authorization.
+  - Created `public.teacher_assignment_history` table with `teacher_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL`, `teacher_name_at_time`, `employee_id_at_time`, `designation_at_time`, `class_name_at_time`, `subject_name_at_time`, `unassigned_by`, `unassigned_by_name_at_time`, genuine `assigned_at` timestamp preservation (set to `NULL` for direct FKs without fabricating row creation dates; `subject_teachers.created_at` preserved), `ended_at = now()`, `ended_reason = 'teacher_access_disabled'`, and full operational metadata.
   - Active assignment discovery RPC `public.fn_get_teacher_active_assignments(_school_id, _teacher_profile_id)` inspecting all 5 operational teaching areas: `classes`, `subjects`, `subject_teachers`, `timetable`, and active/future/live `online_classes`.
   - Locked-down internal atomic RPC `public.fn_disable_teacher_access_internal(_school_id, _target_profile_id, _actor_profile_id, _clear_assignments)`:
     - Executed exclusively by `service_role` and `postgres` (revoked from `PUBLIC`, `anon`, `authenticated`).
@@ -1428,7 +1428,7 @@ Superadmin must not accidentally bypass relational validation merely because the
     - Sets `employees.status = 'inactive'`.
     - Deletes teacher role from `user_roles`.
     - Handles primary role transition (Case B: transitions to `'parent'` if active children exist; Case C: rejects if no other persona exists).
-    - Writes structured audit log to `admin_action_audit`.
+    - Canonical audit logging in `public.admin_action_audit` (structured `teacher_access_disabled` event with full actor, target, staff identity, role transition, revoked sessions, and assignment breakdown).
 - [x] **Edge Function Hardened (`update_admin`)**:
   - Explicit target vs. actor aliasing: `targetUserId = adminId; actorUserId = caller.id;`.
   - Calls `fn_disable_teacher_access_internal` inside the service-role admin client.

@@ -2,7 +2,7 @@
 -- Description: Phase 9 - Safely disable/remove Teacher Access, snapshot assignment history, revoke unlocks, and deny stale JWT operations
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 1. DYNAMIC CHECK CONSTRAINT ON employees.status
+-- 1. DYNAMIC CHECK CONSTRAINT ON employees.status & AUDIT TABLE DEFENSE
 -- ═══════════════════════════════════════════════════════════════════════════
 DO $$
 DECLARE
@@ -19,32 +19,46 @@ BEGIN
         ALTER TABLE public.employees ADD CONSTRAINT employees_status_check
             CHECK (status IN ('active', 'inactive', 'resigned', 'terminated', 'on_leave', 'retired'));
     END IF;
+
+    -- Ensure canonical admin_action_audit table columns exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'admin_action_audit' AND column_name = 'details'
+    ) THEN
+        ALTER TABLE public.admin_action_audit ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'admin_action_audit' AND column_name = 'school_id'
+    ) THEN
+        ALTER TABLE public.admin_action_audit ADD COLUMN IF NOT EXISTS school_id UUID;
+    END IF;
 END $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2. HARDENED CENTRAL AUTHORIZATION HELPER (has_role)
 -- Immediate denial of old browser JWTs: requires active role AND active employee record
+-- Strictly evaluates Teacher eligibility without conflating Staff PIN / unlock state
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role TEXT)
 RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions AS $$
     SELECT (
         CASE
             WHEN _role = 'teacher' THEN
                 EXISTS (
                     SELECT 1 FROM public.profiles p
+                    JOIN public.employees e ON e.profile_id = p.id AND e.school_id = p.school_id
                     WHERE p.id = _user_id
                       AND p.is_active = true
                       AND p.deleted_at IS NULL
+                      AND e.status = 'active'
+                      AND e.deleted_at IS NULL
                       AND (
                           p.role = 'teacher'
                           OR EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = p.id AND ur.role = 'teacher')
                       )
-                ) AND EXISTS (
-                    SELECT 1 FROM public.employees e
-                    WHERE e.profile_id = _user_id
-                      AND e.status = 'active'
-                      AND e.deleted_at IS NULL
                 )
             ELSE
                 EXISTS (
@@ -65,7 +79,7 @@ GRANT EXECUTE ON FUNCTION public.has_role(UUID, TEXT) TO authenticated, service_
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 3. ASSIGNMENT HISTORY TABLE (teacher_assignment_history)
--- ON DELETE SET NULL to preserve history even if profiles are purged later
+-- ON DELETE SET NULL to preserve history even if profiles or classes are purged later
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS public.teacher_assignment_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -76,10 +90,14 @@ CREATE TABLE IF NOT EXISTS public.teacher_assignment_history (
     designation_at_time TEXT,
     assignment_type TEXT NOT NULL CHECK (assignment_type IN ('class_teacher', 'subject', 'subject_teacher', 'timetable', 'online_class')),
     class_id UUID REFERENCES public.classes(id) ON DELETE SET NULL,
+    class_name_at_time TEXT,
     subject_id UUID REFERENCES public.subjects(id) ON DELETE SET NULL,
+    subject_name_at_time TEXT,
     source_assignment_id UUID,
-    assigned_at TIMESTAMPTZ,
+    assigned_at TIMESTAMPTZ, -- NOT defaulted to now(). Sourced only when a genuine assignment start date exists, else NULL
     ended_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    unassigned_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    unassigned_by_name_at_time TEXT,
     ended_reason TEXT NOT NULL DEFAULT 'teacher_access_disabled',
     metadata JSONB DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -295,6 +313,7 @@ AS $$
 DECLARE
     v_target_profile RECORD;
     v_existing_emp RECORD;
+    v_actor_name TEXT;
     v_active_count INT := 0;
     v_prev_role TEXT;
     v_new_role TEXT;
@@ -322,6 +341,11 @@ BEGIN
     IF v_target_profile.school_id IS NOT NULL AND v_target_profile.school_id <> _school_id THEN
         RAISE EXCEPTION 'Target user does not belong to the specified school';
     END IF;
+
+    -- Fetch actor full name for snapshot attribution
+    SELECT full_name INTO v_actor_name
+    FROM public.profiles
+    WHERE id = _actor_profile_id;
 
     v_prev_role := v_target_profile.role;
     v_new_role := v_prev_role;
@@ -352,15 +376,18 @@ BEGIN
     -- 4. Snapshot & Clear Operational Assignments (if requested)
     IF v_active_count > 0 AND _clear_assignments IS TRUE THEN
         -- A. Classes
+        -- assigned_at is set to NULL because classes.created_at is when the class was created, NOT when this teacher was assigned
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
-            assignment_type, class_id, source_assignment_id, assigned_at, ended_at, ended_reason, metadata
+            assignment_type, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
+            unassigned_by, unassigned_by_name_at_time, ended_reason, metadata
         )
-        SELECT school_id, teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
-               'class_teacher', id, id, created_at, now(), 'teacher_access_disabled',
-               jsonb_build_object('name', name, 'section', section, 'grade_level', grade_level)
-        FROM public.classes
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
+        SELECT c.school_id, c.teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
+               'class_teacher', c.id, c.name, c.id, NULL, now(),
+               _actor_profile_id, v_actor_name, 'teacher_access_disabled',
+               jsonb_build_object('name', c.name, 'section', c.section, 'grade_level', c.grade_level, 'source_row_created_at', c.created_at)
+        FROM public.classes c
+        WHERE c.teacher_id = _target_profile_id AND c.school_id = _school_id AND c.deleted_at IS NULL;
         GET DIAGNOSTICS v_cleared_classes = ROW_COUNT;
 
         UPDATE public.classes
@@ -368,15 +395,19 @@ BEGIN
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
         -- B. Subjects
+        -- assigned_at is set to NULL because subjects.created_at is not the teacher assignment timestamp
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
-            assignment_type, subject_id, class_id, source_assignment_id, assigned_at, ended_at, ended_reason, metadata
+            assignment_type, subject_id, subject_name_at_time, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
+            unassigned_by, unassigned_by_name_at_time, ended_reason, metadata
         )
-        SELECT school_id, teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
-               'subject', id, class_id, id, created_at, now(), 'teacher_access_disabled',
-               jsonb_build_object('name', name, 'code', code)
-        FROM public.subjects
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
+        SELECT s.school_id, s.teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
+               'subject', s.id, s.name, s.class_id, c.name, s.id, NULL, now(),
+               _actor_profile_id, v_actor_name, 'teacher_access_disabled',
+               jsonb_build_object('name', s.name, 'code', s.code, 'source_row_created_at', s.created_at)
+        FROM public.subjects s
+        LEFT JOIN public.classes c ON c.id = s.class_id
+        WHERE s.teacher_id = _target_profile_id AND s.school_id = _school_id AND s.deleted_at IS NULL;
         GET DIAGNOSTICS v_cleared_subjects = ROW_COUNT;
 
         UPDATE public.subjects
@@ -384,30 +415,40 @@ BEGIN
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
         -- C. Subject Teachers
+        -- subject_teachers is a dedicated assignment join table; its created_at IS the assignment timestamp
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
-            assignment_type, subject_id, class_id, source_assignment_id, assigned_at, ended_at, ended_reason, metadata
+            assignment_type, subject_id, subject_name_at_time, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
+            unassigned_by, unassigned_by_name_at_time, ended_reason, metadata
         )
-        SELECT school_id, teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
-               'subject_teacher', subject_id, class_id, id, created_at, now(), 'teacher_access_disabled',
-               jsonb_build_object('academic_year_id', academic_year_id, 'is_primary', is_primary)
-        FROM public.subject_teachers
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id;
+        SELECT st.school_id, st.teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
+               'subject_teacher', st.subject_id, s.name, st.class_id, c.name, st.id, st.created_at, now(),
+               _actor_profile_id, v_actor_name, 'teacher_access_disabled',
+               jsonb_build_object('academic_year_id', st.academic_year_id, 'is_primary', st.is_primary)
+        FROM public.subject_teachers st
+        LEFT JOIN public.subjects s ON s.id = st.subject_id
+        LEFT JOIN public.classes c ON c.id = st.class_id
+        WHERE st.teacher_id = _target_profile_id AND st.school_id = _school_id;
         GET DIAGNOSTICS v_cleared_st = ROW_COUNT;
 
         DELETE FROM public.subject_teachers
         WHERE teacher_id = _target_profile_id AND school_id = _school_id;
 
         -- D. Timetable
+        -- assigned_at is set to NULL because timetable.created_at is slot creation, not teacher assignment
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
-            assignment_type, subject_id, class_id, source_assignment_id, assigned_at, ended_at, ended_reason, metadata
+            assignment_type, subject_id, subject_name_at_time, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
+            unassigned_by, unassigned_by_name_at_time, ended_reason, metadata
         )
-        SELECT school_id, teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
-               'timetable', subject_id, class_id, id, created_at, now(), 'teacher_access_disabled',
-               jsonb_build_object('day_of_week', day_of_week, 'start_time', start_time, 'end_time', end_time, 'room', room)
-        FROM public.timetable
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
+        SELECT tt.school_id, tt.teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
+               'timetable', tt.subject_id, s.name, tt.class_id, c.name, tt.id, NULL, now(),
+               _actor_profile_id, v_actor_name, 'teacher_access_disabled',
+               jsonb_build_object('day_of_week', tt.day_of_week, 'start_time', tt.start_time, 'end_time', tt.end_time, 'room', tt.room, 'source_row_created_at', tt.created_at)
+        FROM public.timetable tt
+        LEFT JOIN public.subjects s ON s.id = tt.subject_id
+        LEFT JOIN public.classes c ON c.id = tt.class_id
+        WHERE tt.teacher_id = _target_profile_id AND tt.school_id = _school_id AND tt.deleted_at IS NULL;
         GET DIAGNOSTICS v_cleared_tt = ROW_COUNT;
 
         UPDATE public.timetable
@@ -415,23 +456,28 @@ BEGIN
         WHERE teacher_id = _target_profile_id AND school_id = _school_id AND deleted_at IS NULL;
 
         -- E. Online Classes
+        -- assigned_at is set to NULL; source_row_created_at preserved in metadata
         INSERT INTO public.teacher_assignment_history (
             school_id, teacher_id, teacher_name_at_time, employee_id_at_time, designation_at_time,
-            assignment_type, subject_id, class_id, source_assignment_id, assigned_at, ended_at, ended_reason, metadata
+            assignment_type, subject_id, subject_name_at_time, class_id, class_name_at_time, source_assignment_id, assigned_at, ended_at,
+            unassigned_by, unassigned_by_name_at_time, ended_reason, metadata
         )
-        SELECT school_id, teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
-               'online_class', subject_id, class_id, id, created_at, now(), 'teacher_access_disabled',
-               jsonb_build_object('title', title, 'scheduled_at', scheduled_at, 'status', status)
-        FROM public.online_classes
-        WHERE teacher_id = _target_profile_id AND school_id = _school_id
-          AND (status = 'live' OR (status = 'scheduled' AND scheduled_at >= now()))
-          AND deleted_at IS NULL;
+        SELECT oc.school_id, oc.teacher_id, COALESCE(v_existing_emp.staff_person_name, v_target_profile.full_name), v_existing_emp.id, v_existing_emp.designation,
+               'online_class', oc.subject_id, s.name, oc.class_id, c.name, oc.id, NULL, now(),
+               _actor_profile_id, v_actor_name, 'teacher_access_disabled',
+               jsonb_build_object('title', oc.title, 'scheduled_at', oc.scheduled_at, 'status', oc.status, 'source_row_created_at', oc.created_at)
+        FROM public.online_classes oc
+        LEFT JOIN public.subjects s ON s.id = oc.subject_id
+        LEFT JOIN public.classes c ON c.id = oc.class_id
+        WHERE oc.teacher_id = _target_profile_id AND oc.school_id = _school_id
+          AND (oc.status = 'live' OR (oc.status = 'scheduled' AND oc.scheduled_at >= now()))
+          AND oc.deleted_at IS NULL;
         GET DIAGNOSTICS v_cleared_oc = ROW_COUNT;
 
         UPDATE public.online_classes
         SET teacher_id = NULL
         WHERE teacher_id = _target_profile_id AND school_id = _school_id
-          AND (status = 'live' OR (status = 'scheduled' AND scheduled_at >= now()))
+          AND (oc.status = 'live' OR (oc.status = 'scheduled' AND oc.scheduled_at >= now()))
           AND deleted_at IS NULL;
     END IF;
 
@@ -491,7 +537,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- 9. Audit Logging
+    -- 9. Canonical Audit Logging in admin_action_audit
     INSERT INTO public.admin_action_audit (
         id, actor_id, school_id, target_user_id, action, details, created_at
     ) VALUES (
@@ -501,12 +547,24 @@ BEGIN
         _target_profile_id,
         'teacher_access_disabled',
         jsonb_build_object(
+            'actor_id', _actor_profile_id,
+            'actor_name', v_actor_name,
             'target_user_id', _target_profile_id,
+            'target_user_name', v_target_profile.full_name,
+            'school_id', _school_id,
+            'staff_identity', jsonb_build_object(
+                'employee_id', v_existing_emp.id,
+                'staff_person_name', v_existing_emp.staff_person_name,
+                'designation', v_existing_emp.designation,
+                'department', v_existing_emp.department
+            ),
             'previous_primary_role', v_prev_role,
             'new_primary_role', v_new_role,
             'primary_role_changed', v_primary_role_changed,
-            'employee_status_updated', 'inactive',
-            'staff_unlock_sessions_revoked', v_revoked_session_count,
+            'employee_previous_status', v_existing_emp.status,
+            'employee_new_status', 'inactive',
+            'sessions_revoked', v_revoked_session_count,
+            'assignments_archived', _clear_assignments,
             'assignments_cleared', _clear_assignments,
             'cleared_counts', jsonb_build_object(
                 'classes', v_cleared_classes,
@@ -514,7 +572,8 @@ BEGIN
                 'subject_teachers', v_cleared_st,
                 'timetable', v_cleared_tt,
                 'online_classes', v_cleared_oc
-            )
+            ),
+            'timestamp', now()
         ),
         now()
     );

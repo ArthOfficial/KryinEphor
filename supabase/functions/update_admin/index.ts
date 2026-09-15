@@ -425,6 +425,7 @@ Deno.serve(async (req: Request) => {
 
         // Case 2: Disabling Teacher Access (Atomic Database State Transition)
         let primaryRoleForcedChange = false;
+        let metadataSyncWarning: string | null = null;
         if (hadTeacherRole && !willHaveTeacher && effectiveSchool) {
             const { data: disableResult, error: disableRpcError } = await supabaseAdmin.rpc(
                 'fn_disable_teacher_access_internal',
@@ -453,6 +454,7 @@ Deno.serve(async (req: Request) => {
                         app_metadata: { role: 'parent', school_id: effectiveSchool }
                     });
                 } catch (authErr) {
+                    metadataSyncWarning = 'Teacher access was securely revoked in database, but Auth metadata could not be refreshed immediately.';
                     console.warn('Auth app_metadata sync warning (DB state remains authoritative):', authErr);
                 }
             }
@@ -511,7 +513,7 @@ Deno.serve(async (req: Request) => {
             }
             if (schoolId !== undefined && schoolId !== targetProfile.school_id) actions.push('school_change');
             if (!hadTeacherRole && willHaveTeacher) actions.push('teacher_access_added');
-            if (hadTeacherRole && !willHaveTeacher) actions.push('teacher_access_disabled');
+            // teacher_access_disabled is authoritatively recorded with full structured payload inside fn_disable_teacher_access_internal
             if (hadTeacherRole && willHaveTeacher && (staffPersonName || designation || department)) {
                 actions.push('staff_details_changed');
             }
@@ -545,7 +547,11 @@ Deno.serve(async (req: Request) => {
             // Auditing must never break the primary operation.
         }
 
-        return new Response(JSON.stringify({ success: true, user: { id: adminId, email: email || targetProfile.email } }), {
+        return new Response(JSON.stringify({
+            success: true,
+            user: { id: adminId, email: email || targetProfile.email },
+            ...(metadataSyncWarning ? { metadata_sync_warning: metadataSyncWarning } : {}),
+        }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200,
         });

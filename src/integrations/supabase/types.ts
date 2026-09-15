@@ -4370,10 +4370,14 @@ export type Database = {
           designation_at_time: string | null
           assignment_type: string
           class_id: string | null
+          class_name_at_time: string | null
           subject_id: string | null
+          subject_name_at_time: string | null
           source_assignment_id: string | null
           assigned_at: string | null
           ended_at: string
+          unassigned_by: string | null
+          unassigned_by_name_at_time: string | null
           ended_reason: string
           metadata: Json | null
           created_at: string
@@ -4387,10 +4391,14 @@ export type Database = {
           designation_at_time?: string | null
           assignment_type: string
           class_id?: string | null
+          class_name_at_time?: string | null
           subject_id?: string | null
+          subject_name_at_time?: string | null
           source_assignment_id?: string | null
           assigned_at?: string | null
           ended_at?: string
+          unassigned_by?: string | null
+          unassigned_by_name_at_time?: string | null
           ended_reason?: string
           metadata?: Json | null
           created_at?: string
@@ -4404,10 +4412,14 @@ export type Database = {
           designation_at_time?: string | null
           assignment_type?: string
           class_id?: string | null
+          class_name_at_time?: string | null
           subject_id?: string | null
+          subject_name_at_time?: string | null
           source_assignment_id?: string | null
           assigned_at?: string | null
           ended_at?: string
+          unassigned_by?: string | null
+          unassigned_by_name_at_time?: string | null
           ended_reason?: string
           metadata?: Json | null
           created_at?: string
