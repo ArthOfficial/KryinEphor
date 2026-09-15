@@ -955,6 +955,26 @@ Do not create a fake security layer that protects the React page while leaving S
 
 # PHASE 6 — PERSONA / VIEW SWITCHER
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915013000_phase6_persona_view_switcher.sql`.
+- [x] **Persona Summary RPC**:
+  - Implemented `public.fn_get_my_persona_summary()` returning atomic account details, assigned roles, active staff profile, linked children/students list (`student_id`, `admission_number`, `full_name`, `class_name`, `section_name`, `is_primary`, `relationship_type`), and staff PIN security status (`is_configured`, `is_locked`, `is_unlocked`).
+- [x] **Auth Context Integration (`AuthContext.tsx` & `authContextValue.ts`)**:
+  - Added `linkedStudents`, `activeStudentId`, `setActiveStudentId`, `refreshPersonaSummary()`.
+  - Persona summary loads atomically upon authentication and refreshes on role/profile events.
+  - Switching between views does NOT log out or reset user session.
+- [x] **High-End Persona Switcher Component (`PersonaSwitcher.tsx`)**:
+  - Dual variant support: `variant="sidebar"` and `variant="header"`.
+  - Clean separation into **FAMILY** (`Student View` with multi-child names, `Parent Dashboard`) and **WORK** (`Teacher Dashboard` with PIN lock state, `School Admin`, `Super Admin`).
+  - Seamless Staff PIN integration: clicking Teacher mode when locked triggers `StaffPinModal` before switching.
+  - Preserves 1-click quick toggle button for accounts with strictly 2 roles (`student` + `parent`) to maintain fast user workflow.
+- [x] **Header and Sidebar Integration**:
+  - `Sidebar.tsx`: Render `<PersonaSwitcher variant="sidebar" collapsed={collapsed} />`.
+  - `Header.tsx`: Render `<PersonaSwitcher variant="header" />` for multi-role/multi-child accounts while preserving quick toggle for pure Student+Parent accounts.
+- [x] **Build Verification**: Verified `npm run build` succeeds with 0 errors.
+
 Preserve the current Student + Parent switcher.
 
 Extend it.

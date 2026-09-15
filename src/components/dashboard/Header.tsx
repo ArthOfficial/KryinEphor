@@ -4,6 +4,7 @@ import NotificationsBell from './NotificationsBell';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { DASHBOARD_ROUTES } from '../../config/roles';
+import { PersonaSwitcher } from './PersonaSwitcher';
 import type { LucideIcon } from 'lucide-react';
 
 interface HeaderProps {
@@ -22,7 +23,7 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
-    const { role, roles, user, switchDashboardRole, lockStaffMode } = useAuth();
+    const { role, roles, user, switchDashboardRole, lockStaffMode, linkedStudents } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [searchQuery, setSearchQuery] = useState('');
@@ -155,8 +156,10 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
                     </button>
                 )}
 
-                {/* Switch button for Student/Parent */}
-                {roles.includes('student') && roles.includes('parent') && (
+                {/* Persona Switcher for multi-role/multi-child, or quick switch button for pure Student/Parent */}
+                {(roles.length > 2 || (linkedStudents && linkedStudents.length > 1)) ? (
+                    <PersonaSwitcher variant="header" />
+                ) : (roles.includes('student') && roles.includes('parent')) ? (
                     <button
                         type="button"
                         onClick={() => {
@@ -173,7 +176,7 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
                         <span className="hidden sm:inline">Switch to {role === 'student' ? 'Parent' : 'Student'}</span>
                         <span className="sm:hidden">{role === 'student' ? 'Parent' : 'Student'}</span>
                     </button>
-                )}
+                ) : null}
                 {(() => {
                     const roleLabelMap: Record<string, string> = {
                         superadmin: 'Super Admin',

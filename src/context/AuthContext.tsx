@@ -3,7 +3,7 @@ import type { UserRole } from '../config/roles';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
-import { AuthContext, type AuthUser, type StaffPinStatus } from './authContextValue';
+import { AuthContext, type AuthUser, type StaffPinStatus, type LinkedStudentPersona } from './authContextValue';
 import { shouldHydrateAuthEvent, signOutBeforeRedirect } from '../lib/auth/loginSession';
 import { StaffPinModal } from '../components/auth/StaffPinModal';
 
@@ -64,6 +64,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [staffSessionToken, setStaffSessionToken] = useState<string | null>(null);
     const [staffPinStatus, setStaffPinStatus] = useState<StaffPinStatus | null>(null);
     const [isStaffPinModalOpen, setIsStaffPinModalOpen] = useState(false);
+
+    // Phase 6 Persona & View Switcher state
+    const [linkedStudents, setLinkedStudents] = useState<LinkedStudentPersona[]>([]);
+    const [activeStudentId, setActiveStudentIdState] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem('active_student_id') || null;
+        } catch {
+            return null;
+        }
+    });
+
+    const setActiveStudentId = useCallback((id: string | null) => {
+        setActiveStudentIdState(id);
+        if (id) {
+            try {
+                localStorage.setItem('active_student_id', id);
+            } catch { /* ignore */ }
+        }
+    }, []);
+
+    const refreshPersonaSummary = useCallback(async () => {
+        try {
+            const { data, error } = await supabase.rpc('fn_get_my_persona_summary');
+            if (!error && data && (data as any).success) {
+                const rawStudents = (data as any).linked_students || [];
+                const parsed: LinkedStudentPersona[] = rawStudents.map((s: any) => ({
+                    studentId: s.student_id,
+                    fullName: s.full_name,
+                    email: s.email,
+                    schoolId: s.school_id,
+                    relationship: s.relationship,
+                    isPrimary: Boolean(s.is_primary),
+                    avatarUrl: s.avatar_url ?? null
+                }));
+                setLinkedStudents(parsed);
+
+                if (parsed.length > 0) {
+                    const stored = localStorage.getItem('active_student_id');
+                    const found = parsed.find(s => s.studentId === stored);
+                    if (found) {
+                        setActiveStudentIdState(found.studentId);
+                    } else {
+                        const primary = parsed.find(s => s.isPrimary) || parsed[0];
+                        setActiveStudentIdState(primary.studentId);
+                    }
+                }
+            }
+        } catch { /* ignore */ }
+    }, []);
 
     /**
      * Handle a Supabase auth session — fetch profile and set state.
@@ -135,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             setRole(effectiveActiveRole);
+            void refreshPersonaSummary();
             if (shouldLog) {
                 await logger.info('auth', 'Session restored', {
                     details: { email: supaUser.email, role: effectiveActiveRole, roles: allRoles },
@@ -147,6 +197,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setRoles([]);
             setIsStaffUnlocked(false);
             setStaffSessionToken(null);
+            setLinkedStudents([]);
+            setActiveStudentIdState(null);
             if (shouldLog) {
                 await logger.warn('auth', 'User has no profile', {
                     details: { email: supaUser.email, userId: supaUser.id }
@@ -375,6 +427,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setUser(null);
                     setRole(null);
                     setRoles([]);
+                    setLinkedStudents([]);
+                    setActiveStudentIdState(null);
                     try {
                         sessionStorage.setItem('post_signout_toast', 'Logged out successfully! Come back soon.');
                     } catch { /* ignore quota / privacy-mode errors */ }
@@ -555,7 +609,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setupStaffPin,
             isStaffPinModalOpen,
             openStaffPinModal,
-            closeStaffPinModal
+            closeStaffPinModal,
+            linkedStudents,
+            activeStudentId,
+            setActiveStudentId,
+            refreshPersonaSummary
         }}>
             {children}
             <StaffPinModal

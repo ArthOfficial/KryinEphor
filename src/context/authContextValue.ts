@@ -25,6 +25,16 @@ export interface StaffPinStatus {
     isTemporary: boolean;
 }
 
+export interface LinkedStudentPersona {
+    studentId: string;
+    fullName: string;
+    email: string;
+    schoolId: string;
+    relationship: string;
+    isPrimary: boolean;
+    avatarUrl?: string | null;
+}
+
 export interface AuthContextType {
     user: AuthUser | null;
     role: UserRole | null;
@@ -50,6 +60,11 @@ export interface AuthContextType {
     isStaffPinModalOpen: boolean;
     openStaffPinModal: () => void;
     closeStaffPinModal: () => void;
+    // Phase 6 Persona & View Switcher State & Methods
+    linkedStudents: LinkedStudentPersona[];
+    activeStudentId: string | null;
+    setActiveStudentId: (studentId: string | null) => void;
+    refreshPersonaSummary: () => Promise<void>;
 }
 
 // Stable context identity across HMR — defined in a non-component module so

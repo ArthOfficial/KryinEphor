@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined, ArrowLeftRight, Lock } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, TimerReset, ClipboardPenLine, ChartNoAxesCombined } from 'lucide-react';
 import {
     LayoutDashboard,
     Users,
@@ -18,17 +18,17 @@ import {
     CheckSquare,
     Database as DatabaseIcon
 } from 'lucide-react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { DASHBOARD_ROUTES, getRoleStyle } from '../../config/roles';
+import { DASHBOARD_ROUTES } from '../../config/roles';
+import { PersonaSwitcher } from './PersonaSwitcher';
 
 interface SidebarProps {
     activePage?: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
-    const { user, role, roles, signOut, isTransitioning, switchDashboardRole, isStaffUnlocked, lockStaffMode } = useAuth();
-    const navigate = useNavigate();
+    const { user, role, roles, signOut, isTransitioning } = useAuth();
     const location = useLocation();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -232,96 +232,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
                 </nav>
 
                 <div className={`mt-auto ${collapsed ? 'p-3 lg:px-2' : 'p-6'} border-t border-gray-100`}>
-                    {/* Role Switcher for Multi-role Accounts (e.g. Student <-> Parent or general multi-role) */}
-                    {roles.length > 1 && (
-                        <div className="mb-3">
-                            {roles.includes('student') && roles.includes('parent') && roles.length === 2 ? (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const next = activeRole === 'student' ? 'parent' : 'student';
-                                        switchDashboardRole(next);
-                                        if (!['/dashboard', '/fees', '/tests', '/performance'].includes(location.pathname)) {
-                                            navigate('/dashboard');
-                                        }
-                                    }}
-                                    title={activeRole === 'student' ? 'Switch to Parent View' : 'Switch to Student View'}
-                                    className={`w-full flex items-center ${collapsed ? 'justify-center p-2' : 'justify-between px-3 py-2'} rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-teal-500/15 border border-teal-500/25 text-teal-900 hover:from-teal-500/20 hover:to-teal-500/25 hover:border-teal-500/50 hover:shadow-sm transition-all active:scale-[0.98] group`}
-                                >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <div className="w-6 h-6 rounded-lg bg-teal-600/15 flex items-center justify-center text-teal-700 shrink-0 group-hover:rotate-180 transition-transform duration-300">
-                                            <ArrowLeftRight className="w-3.5 h-3.5" />
-                                        </div>
-                                        {!collapsed && (
-                                            <span className="text-xs font-bold truncate">
-                                                {activeRole === 'student' ? 'Switch to Parent' : 'Switch to Student'}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {!collapsed && (
-                                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-white text-teal-800 border border-teal-200 shrink-0 shadow-xs">
-                                            {activeRole === 'student' ? 'Parent' : 'Student'}
-                                        </span>
-                                    )}
-                                </button>
-                            ) : (
-                                <div className="space-y-1.5">
-                                    {!collapsed && (
-                                        <div className="flex items-center justify-between px-1">
-                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted">Switch Role</span>
-                                            <span className="text-[9px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100">
-                                                {roles.length} roles
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className={`flex ${collapsed ? 'flex-col gap-1' : 'flex-wrap gap-1'}`}>
-                                        {roles.map((r) => {
-                                            const isCurrent = r === activeRole;
-                                            const rStyle = getRoleStyle(r);
-                                            const isTeacherLocked = r === 'teacher' && !isStaffUnlocked;
-                                            return (
-                                                <button
-                                                    key={r}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        switchDashboardRole(r);
-                                                        if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname) && (r === 'student' || r === 'parent')) {
-                                                            navigate('/dashboard');
-                                                        }
-                                                    }}
-                                                    title={`Switch view to ${rStyle.label}${isTeacherLocked ? ' (PIN required)' : ''}`}
-                                                    className={`text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 ${collapsed ? 'w-8 h-8' : 'px-2.5 py-1.5 flex-1 min-w-[65px] text-center'} ${
-                                                        isCurrent
-                                                            ? 'bg-primary text-white shadow-sm shadow-teal-900/20'
-                                                            : 'bg-white/80 hover:bg-white text-stone-600 border border-stone-200/70 hover:border-teal-300'
-                                                    }`}
-                                                >
-                                                    <span>{collapsed ? r.charAt(0).toUpperCase() : rStyle.label}</span>
-                                                    {isTeacherLocked && !collapsed && (
-                                                        <Lock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                                    )}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    {activeRole === 'teacher' && (
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                await lockStaffMode();
-                                                navigate('/dashboard');
-                                            }}
-                                            title="Lock Teacher View"
-                                            className={`w-full mt-2 flex items-center justify-center gap-1.5 ${collapsed ? 'p-2' : 'px-2.5 py-1.5'} rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 hover:bg-amber-100 text-xs font-bold transition-all shadow-xs`}
-                                        >
-                                            <Lock className="w-3 h-3 text-amber-700 shrink-0" />
-                                            {!collapsed && <span>Lock Teacher View</span>}
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    {/* Persona & Workspace Switcher (Phase 6) */}
+                    <PersonaSwitcher variant="sidebar" collapsed={collapsed} />
                     <div className={`clay-card ${collapsed ? 'p-2 lg:justify-center' : 'p-4'} flex items-center gap-3 relative overflow-hidden group`}>
                         <div className="relative shrink-0">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-stone-800 to-stone-600 flex items-center justify-center text-white font-bold shadow-md">

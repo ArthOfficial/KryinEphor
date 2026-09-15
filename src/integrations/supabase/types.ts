@@ -5312,6 +5312,10 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_get_my_persona_summary: {
+        Args: never
+        Returns: Json
+      }
       fn_get_profile_family_links: {
         Args: { _target_profile_id: string }
         Returns: Json
