@@ -28,6 +28,9 @@ import {
     BadgeCheck,
     XCircle,
     Pencil,
+    Plus,
+    UserMinus,
+    Settings2,
 } from 'lucide-react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
@@ -70,7 +73,591 @@ import { ROLE_CONFIG, getRoleStyle } from '../config/roles';
 
 
 
-/* ─── USER DRAWER ──────────────────────────────────────── */
+/* ─── PHASE 8: FAMILY & STAFF MANAGEMENT MODALS ────────── */
+
+interface LinkedStudentTarget {
+    link_id: string;
+    student_id: string;
+    full_name: string;
+    email?: string;
+    login_id?: string | null;
+    class_name: string | null;
+    section_name?: string | null;
+    relationship: string;
+    is_primary: boolean;
+    status?: string;
+}
+
+/* 1. Unlink Child Confirmation Modal */
+const UnlinkChildConfirmModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    student: LinkedStudentTarget | null;
+    onConfirm: () => Promise<void>;
+    busy: boolean;
+}> = ({ isOpen, onClose, student, onConfirm, busy }) => {
+    if (!isOpen || !student) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-100 space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+                        <UserMinus className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Unlink Student from Family</h3>
+                        <p className="text-xs text-muted">Remove family access for this student</p>
+                    </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-700 space-y-1">
+                    <p><strong className="text-stone-900">Student:</strong> {student.full_name}</p>
+                    {student.class_name && <p><strong className="text-stone-900">Class:</strong> {student.class_name}{student.section_name ? ` - ${student.section_name}` : ''}</p>}
+                    {student.relationship && <p><strong className="text-stone-900">Relationship:</strong> {student.relationship}</p>}
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-1.5 leading-relaxed">
+                    <div className="flex items-center gap-1.5 font-bold">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                        <span>Academic Records Are Preserved</span>
+                    </div>
+                    <p>
+                        <strong>{student.full_name}</strong>'s school record will <strong>NOT</strong> be deleted.
+                        Marks, attendance, fees, tests, enrollment, and academic history will remain completely intact.
+                    </p>
+                    <p className="text-amber-800/90 text-[11px]">
+                        Only this family account's access relationship will be removed.
+                    </p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                        {busy ? 'Unlinking…' : 'Confirm Unlink'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* 2. Edit Relationship Modal */
+const EditRelationshipModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    student: LinkedStudentTarget | null;
+    relationship: string;
+    setRelationship: (val: string) => void;
+    isPrimary: boolean;
+    setIsPrimary: (val: boolean) => void;
+    onSave: () => Promise<void>;
+    busy: boolean;
+}> = ({ isOpen, onClose, student, relationship, setRelationship, isPrimary, setIsPrimary, onSave, busy }) => {
+    if (!isOpen || !student) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Edit Relationship</h3>
+                        <p className="text-xs text-muted">Update guardian role for {student.full_name}</p>
+                    </div>
+                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">Relationship</label>
+                        <select
+                            value={relationship}
+                            onChange={e => setRelationship(e.target.value)}
+                            className="clay-input w-full text-sm bg-white"
+                        >
+                            <option value="Son">Son</option>
+                            <option value="Daughter">Daughter</option>
+                            <option value="Child">Child</option>
+                            <option value="Ward">Ward</option>
+                            <option value="Mother">Mother</option>
+                            <option value="Father">Father</option>
+                            <option value="Legal Guardian">Legal Guardian</option>
+                            <option value="Parent">Parent</option>
+                            <option value="Other Guardian">Other Guardian</option>
+                        </select>
+                    </div>
+
+                    <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                        <label className="flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={isPrimary}
+                                onChange={e => setIsPrimary(e.target.checked)}
+                                className="w-4 h-4 accent-primary rounded"
+                            />
+                            <span>Set as Primary Child for this family account</span>
+                        </label>
+                        <p className="text-[10px] text-muted mt-1 ml-6">
+                            Primary child appears as default on parent dashboard and notifications.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onSave}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                    >
+                        {busy ? 'Saving…' : 'Save Changes'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+interface StudentCandidate {
+    student_id: string;
+    full_name: string;
+    login_id: string | null;
+    class_name: string | null;
+    section_name: string | null;
+    already_linked: boolean;
+}
+
+/* 3. Link Existing Student Modal */
+const LinkStudentModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    searchQuery: string;
+    setSearchQuery: (val: string) => void;
+    searching: boolean;
+    candidates: StudentCandidate[];
+    selected: StudentCandidate | null;
+    setSelected: (val: StudentCandidate | null) => void;
+    relationship: string;
+    setRelationship: (val: string) => void;
+    isPrimary: boolean;
+    setIsPrimary: (val: boolean) => void;
+    onLink: () => Promise<void>;
+    busy: boolean;
+}> = ({
+    isOpen,
+    onClose,
+    searchQuery,
+    setSearchQuery,
+    searching,
+    candidates,
+    selected,
+    setSelected,
+    relationship,
+    setRelationship,
+    isPrimary,
+    setIsPrimary,
+    onLink,
+    busy,
+}) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                            <Plus className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-bold text-foreground">Link Existing Student</h3>
+                            <p className="text-xs text-muted">Search student in current school and attach to family</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">Search Student</label>
+                        <div className="relative">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                            <input
+                                type="text"
+                                autoFocus
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                placeholder="Type student name, admission number, or class…"
+                                className="clay-input w-full pl-9 text-xs bg-stone-50"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="max-h-44 overflow-y-auto space-y-1.5 border border-stone-200 rounded-xl p-2 bg-stone-50/50">
+                        {searching && <p className="text-xs text-muted text-center py-3">Searching school roster…</p>}
+                        {!searching && candidates.length === 0 && (
+                            <p className="text-xs text-stone-400 text-center py-3">
+                                {searchQuery ? 'No matching students found in this school.' : 'Type to search students.'}
+                            </p>
+                        )}
+                        {candidates.map(c => {
+                            const isChosen = selected?.student_id === c.student_id;
+                            return (
+                                <div
+                                    key={c.student_id}
+                                    onClick={() => !c.already_linked && setSelected(c)}
+                                    className={`p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between ${
+                                        c.already_linked
+                                            ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-60'
+                                            : isChosen
+                                                ? 'bg-primary/10 border-primary text-primary font-bold shadow-2xs cursor-pointer'
+                                                : 'bg-white border-stone-200 hover:bg-stone-50 cursor-pointer text-stone-800'
+                                    }`}
+                                >
+                                    <div className="min-w-0">
+                                        <p className="font-semibold truncate">🎓 {c.full_name}</p>
+                                        <p className="text-[10px] text-muted">
+                                            {c.class_name ? `Class ${c.class_name}${c.section_name ? ` (${c.section_name})` : ''}` : 'No Class Assigned'}
+                                            {c.login_id ? ` • Adm ID: ${c.login_id}` : ''}
+                                        </p>
+                                    </div>
+                                    {c.already_linked ? (
+                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">
+                                            Already Linked
+                                        </span>
+                                    ) : isChosen ? (
+                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-primary text-white">
+                                            Selected
+                                        </span>
+                                    ) : null}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {selected && (
+                        <div className="p-3.5 rounded-xl bg-teal-50/70 border border-teal-200 space-y-2.5">
+                            <p className="text-xs font-semibold text-teal-950">
+                                Link <strong>{selected.full_name}</strong> to family account:
+                            </p>
+                            <div className="grid grid-cols-2 gap-2.5">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-stone-600 block mb-0.5">Relationship</label>
+                                    <select
+                                        value={relationship}
+                                        onChange={e => setRelationship(e.target.value)}
+                                        className="clay-input w-full text-xs py-1 bg-white"
+                                    >
+                                        <option value="Son">Son</option>
+                                        <option value="Daughter">Daughter</option>
+                                        <option value="Child">Child</option>
+                                        <option value="Ward">Ward</option>
+                                        <option value="Mother">Mother</option>
+                                        <option value="Father">Father</option>
+                                        <option value="Legal Guardian">Legal Guardian</option>
+                                        <option value="Parent">Parent</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-center pt-3.5">
+                                    <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={isPrimary}
+                                            onChange={e => setIsPrimary(e.target.checked)}
+                                            className="w-3.5 h-3.5 accent-primary"
+                                        />
+                                        <span>Primary Child</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        disabled={!selected || busy}
+                        onClick={onLink}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                        {busy ? 'Linking Student…' : 'Confirm Link'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* 4. Add Teacher Access Modal */
+const AddTeacherModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    staffName: string;
+    setStaffName: (val: string) => void;
+    designation: string;
+    setDesignation: (val: string) => void;
+    department: string;
+    setDepartment: (val: string) => void;
+    onConfirm: () => Promise<void>;
+    busy: boolean;
+}> = ({ isOpen, onClose, staffName, setStaffName, designation, setDesignation, department, setDepartment, onConfirm, busy }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-sky-100 space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center flex-shrink-0">
+                        <GraduationCap className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Add Teacher Access</h3>
+                        <p className="text-xs text-muted">Grant staff educator access to this account</p>
+                    </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200/80 text-xs text-sky-900 space-y-1 leading-relaxed">
+                    <p className="font-semibold">Adult Educator Identity</p>
+                    <p className="text-[11px] text-sky-800">
+                        Enter the adult staff member's real name. This separates the Teacher persona from any linked student children.
+                    </p>
+                </div>
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">
+                            Staff Member Full Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            autoFocus
+                            value={staffName}
+                            onChange={e => setStaffName(e.target.value)}
+                            placeholder="e.g. Sunita Sharma"
+                            className="clay-input w-full text-sm bg-white"
+                        />
+                        <p className="text-[10px] text-muted mt-1">Must be the adult teacher's name, not the student's name.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
+                            <input
+                                type="text"
+                                value={designation}
+                                onChange={e => setDesignation(e.target.value)}
+                                placeholder="e.g. Senior Teacher"
+                                className="clay-input w-full text-sm bg-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
+                            <input
+                                type="text"
+                                value={department}
+                                onChange={e => setDepartment(e.target.value)}
+                                placeholder="e.g. Mathematics"
+                                className="clay-input w-full text-sm bg-white"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        disabled={busy || !staffName.trim()}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                        {busy ? 'Granting Access…' : 'Grant Teacher Access'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* 5. Disable Teacher Access Modal */
+const DisableTeacherModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    staffName: string;
+    onConfirm: () => Promise<void>;
+    busy: boolean;
+}> = ({ isOpen, onClose, staffName, onConfirm, busy }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-100 space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+                        <Lock className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Disable Teacher Access</h3>
+                        <p className="text-xs text-muted">Inactivate educator privileges for {staffName}</p>
+                    </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-1.5 leading-relaxed">
+                    <div className="flex items-center gap-1.5 font-bold">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                        <span>Family Access & History Are Preserved</span>
+                    </div>
+                    <p>
+                        Disabling Teacher access will inactivate active educator privileges.
+                        Family login credentials, parent access, linked children, student records, and historical teacher attributions will remain intact.
+                    </p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                    >
+                        {busy ? 'Disabling…' : 'Disable Teacher Access'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* 6. Edit Staff Details Modal */
+const EditStaffDetailsModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    staffName: string;
+    setStaffName: (val: string) => void;
+    designation: string;
+    setDesignation: (val: string) => void;
+    department: string;
+    setDepartment: (val: string) => void;
+    onSave: () => Promise<void>;
+    busy: boolean;
+}> = ({ isOpen, onClose, staffName, setStaffName, designation, setDesignation, department, setDepartment, onSave, busy }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Edit Staff Details</h3>
+                        <p className="text-xs text-muted">Update educator identity & department</p>
+                    </div>
+                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">
+                            Staff Member Full Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={staffName}
+                            onChange={e => setStaffName(e.target.value)}
+                            className="clay-input w-full text-sm bg-white"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
+                            <input
+                                type="text"
+                                value={designation}
+                                onChange={e => setDesignation(e.target.value)}
+                                className="clay-input w-full text-sm bg-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
+                            <input
+                                type="text"
+                                value={department}
+                                onChange={e => setDepartment(e.target.value)}
+                                className="clay-input w-full text-sm bg-white"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onSave}
+                        disabled={busy || !staffName.trim()}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                    >
+                        {busy ? 'Saving…' : 'Save Details'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+/* ─── USER DRAWER (PHASE 8 RESTRUCTURED) ───────────────── */
 const UserDrawer: React.FC<{
     user: User | null;
     isOpen: boolean;
@@ -87,48 +674,63 @@ const UserDrawer: React.FC<{
     const [editRole, setEditRole] = useState('');
     const [editFullName, setEditFullName] = useState('');
     const [editSchool, setEditSchool] = useState('');
-    const [editEmail, setEditEmail] = useState('');           // full email (no domain / superadmin)
-    const [editEmailLocal, setEditEmailLocal] = useState(''); // local part when domain is locked
+    const [editEmail, setEditEmail] = useState('');
+    const [editEmailLocal, setEditEmailLocal] = useState('');
     const [isActive, setIsActive] = useState(true);
     const [additionalRoles, setAdditionalRoles] = useState<string[]>([]);
     const [editStaffPersonName, setEditStaffPersonName] = useState('');
     const [editDesignation, setEditDesignation] = useState('');
     const [editDepartment, setEditDepartment] = useState('');
 
-    // Family links state (Phase 4)
+    // Family links state
     interface LinkedGuardian {
         link_id: string;
         guardian_id: string;
         full_name: string;
         email: string;
         primary_role: string;
-        roles: string[];
         relationship: string;
         is_primary: boolean;
         is_staff: boolean;
         staff_person_name: string | null;
         designation: string | null;
     }
-    interface LinkedStudent {
-        link_id: string;
-        student_id: string;
-        full_name: string;
-        email: string;
-        class_name: string | null;
-        relationship: string;
-        is_primary: boolean;
-    }
     const [linkedGuardians, setLinkedGuardians] = useState<LinkedGuardian[]>([]);
-    const [linkedStudents, setLinkedStudents] = useState<LinkedStudent[]>([]);
+    const [linkedStudents, setLinkedStudents] = useState<LinkedStudentTarget[]>([]);
     const [familyLoading, setFamilyLoading] = useState(false);
-    const [familySearchOpen, setFamilySearchOpen] = useState(false);
-    const [familySearchQuery, setFamilySearchQuery] = useState('');
-    const [familyCandidates, setFamilyCandidates] = useState<any[]>([]);
-    const [searchingFamily, setSearchingFamily] = useState(false);
-    const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
-    const [linkRelationship, setLinkRelationship] = useState('mother');
-    const [linkIsPrimary, setLinkIsPrimary] = useState(true);
-    const [linkingBusy, setLinkingBusy] = useState(false);
+
+    // Unlink child modal state
+    const [unlinkingStudent, setUnlinkingStudent] = useState<LinkedStudentTarget | null>(null);
+    const [unlinkingBusy, setUnlinkingBusy] = useState(false);
+
+    // Edit relationship modal state
+    const [editingRelationshipLink, setEditingRelationshipLink] = useState<LinkedStudentTarget | null>(null);
+    const [editRelVal, setEditRelVal] = useState('parent');
+    const [editPrimaryVal, setEditPrimaryVal] = useState(false);
+    const [updatingRelBusy, setUpdatingRelBusy] = useState(false);
+
+    // Link existing student modal state
+    const [linkStudentModalOpen, setLinkStudentModalOpen] = useState(false);
+    const [studentSearchQuery, setStudentSearchQuery] = useState('');
+    const [studentCandidates, setStudentCandidates] = useState<StudentCandidate[]>([]);
+    const [searchingStudents, setSearchingStudents] = useState(false);
+    const [selectedStudentCandidate, setSelectedStudentCandidate] = useState<StudentCandidate | null>(null);
+    const [newLinkRelationship, setNewLinkRelationship] = useState('Son');
+    const [newLinkIsPrimary, setNewLinkIsPrimary] = useState(false);
+    const [linkingStudentBusy, setLinkingStudentBusy] = useState(false);
+
+    // Teacher access workflow state
+    const [addTeacherModalOpen, setAddTeacherModalOpen] = useState(false);
+    const [newStaffPersonName, setNewStaffPersonName] = useState('');
+    const [newStaffDesignation, setNewStaffDesignation] = useState('Teacher');
+    const [newStaffDepartment, setNewStaffDepartment] = useState('Academics');
+    const [addingTeacherBusy, setAddingTeacherBusy] = useState(false);
+
+    const [disableTeacherModalOpen, setDisableTeacherModalOpen] = useState(false);
+    const [disablingTeacherBusy, setDisablingTeacherBusy] = useState(false);
+
+    const [editStaffDetailsOpen, setEditStaffDetailsOpen] = useState(false);
+    const [editingStaffBusy, setEditingStaffBusy] = useState(false);
 
     // Staff PIN state (Phase 5)
     interface StaffPinInfo {
@@ -143,6 +745,8 @@ const UserDrawer: React.FC<{
     const [showResetPinInput, setShowResetPinInput] = useState(false);
     const [tempPinValue, setTempPinValue] = useState('');
     const [resettingPin, setResettingPin] = useState(false);
+
+    const hasTeacherAccess = editRole === 'teacher' || additionalRoles.includes('teacher');
 
     const fetchStaffPinStatus = async (schoolId: string, userId: string) => {
         try {
@@ -194,18 +798,15 @@ const UserDrawer: React.FC<{
     const PROTECTED_EMAILS = new Set(['admin@admin.com', 'superadmin@edunex.com']);
     const isProtected = !!user && PROTECTED_EMAILS.has((user.email || '').toLowerCase());
 
-    // Domain of the school this user is currently assigned to (locks the "@…" suffix).
     const editSelectedSchool = schools.find(s => s.id === editSchool);
     const editLockedDomain = editSelectedSchool?.email_domain || '';
-
-    // permsByCategory removed with permissions UI
 
     const fetchFamilyLinks = async (targetId: string) => {
         setFamilyLoading(true);
         try {
             const { data, error } = await supabase.rpc('fn_get_profile_family_links', { _target_profile_id: targetId });
             if (!error && data && typeof data === 'object') {
-                const parsed = data as { guardians: LinkedGuardian[]; students: LinkedStudent[] };
+                const parsed = data as { guardians: LinkedGuardian[]; students: LinkedStudentTarget[] };
                 setLinkedGuardians(parsed.guardians || []);
                 setLinkedStudents(parsed.students || []);
             }
@@ -233,12 +834,10 @@ const UserDrawer: React.FC<{
             setEditStaffPersonName('');
             setEditDesignation('');
             setEditDepartment('');
-            setFamilySearchOpen(false);
-            setSelectedCandidate(null);
 
             fetchFamilyLinks(user.id);
 
-            // Fetch this user's assigned roles (primary + additional) via secure RPC.
+            // Fetch assigned roles
             (async () => {
                 const { data, error } = await supabase.rpc('fn_get_user_roles', { _target_user_id: user.id });
                 if (!error && Array.isArray(data)) {
@@ -247,7 +846,7 @@ const UserDrawer: React.FC<{
                 }
             })();
 
-            // Fetch existing employee/staff profile if any
+            // Fetch existing employee record
             (async () => {
                 const { data } = await supabase
                     .from('employees')
@@ -262,7 +861,6 @@ const UserDrawer: React.FC<{
                 }
             })();
 
-            // Fetch Staff PIN status if user has school
             if (user.school_id) {
                 fetchStaffPinStatus(user.school_id, user.id);
             }
@@ -271,69 +869,258 @@ const UserDrawer: React.FC<{
         }
     }, [user]);
 
-    // Live search for family candidates
+    // Live search for students in current school
     useEffect(() => {
-        if (!familySearchOpen || !user) return;
+        if (!linkStudentModalOpen || !user) return;
         const targetSchool = editSchool || user.school_id;
         if (!targetSchool) return;
 
         const timer = setTimeout(async () => {
-            setSearchingFamily(true);
+            setSearchingStudents(true);
             try {
-                const { data, error } = await supabase.rpc('fn_search_guardians_for_student', {
+                const { data, error } = await supabase.rpc('fn_search_students_for_family', {
                     _school_id: targetSchool,
-                    _query: familySearchQuery.trim()
+                    _query: studentSearchQuery.trim(),
+                    _parent_id: user.id
                 });
                 if (!error && Array.isArray(data)) {
-                    setFamilyCandidates(data.filter((d: any) => d.guardian_id !== user.id));
+                    setStudentCandidates(data);
                 } else {
-                    setFamilyCandidates([]);
+                    setStudentCandidates([]);
                 }
             } catch {
-                setFamilyCandidates([]);
+                setStudentCandidates([]);
             } finally {
-                setSearchingFamily(false);
+                setSearchingStudents(false);
             }
         }, 250);
         return () => clearTimeout(timer);
-    }, [familySearchOpen, user, editSchool, familySearchQuery]);
+    }, [linkStudentModalOpen, user, editSchool, studentSearchQuery]);
 
-    const handleExecuteLink = async () => {
-        if (!user || !selectedCandidate) return;
+    // Handle Unlink Student
+    const handleUnlinkStudent = async () => {
+        if (!user || !unlinkingStudent) return;
         const targetSchool = editSchool || user.school_id;
         if (!targetSchool) return;
 
-        setLinkingBusy(true);
+        setUnlinkingBusy(true);
         setErrorMsg('');
         try {
-            const isTargetStudent = editRole === 'student' || additionalRoles.includes('student');
-            const parentId = isTargetStudent ? selectedCandidate.guardian_id : user.id;
-            const studentId = isTargetStudent ? user.id : selectedCandidate.guardian_id;
-
-            const { error } = await supabase.rpc('fn_link_student_guardian', {
+            const { error } = await supabase.rpc('fn_unlink_student_guardian', {
                 _school_id: targetSchool,
-                _parent_id: parentId,
-                _student_id: studentId,
-                _relationship: linkRelationship,
-                _is_primary: linkIsPrimary
+                _link_id: unlinkingStudent.link_id,
             });
             if (error) throw error;
 
-            setMessage('Family account linked successfully!');
-            setFamilySearchOpen(false);
-            setSelectedCandidate(null);
+            toast.success(`${unlinkingStudent.full_name} unlinked from family account.`);
+            setUnlinkingStudent(null);
             fetchFamilyLinks(user.id);
             onSaved();
-        } catch (err) {
-            setErrorMsg((err instanceof Error ? err.message : '') || 'Failed to link relationship.');
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to unlink student';
+            setErrorMsg(msg);
+            toast.error(msg);
         } finally {
-            setLinkingBusy(false);
+            setUnlinkingBusy(false);
         }
     };
 
+    // Handle Update Relationship
+    const handleUpdateRelationship = async () => {
+        if (!user || !editingRelationshipLink) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
 
-    // Category toggles removed with permissions UI
+        setUpdatingRelBusy(true);
+        setErrorMsg('');
+        try {
+            const { error } = await supabase.rpc('fn_update_guardian_relationship', {
+                _school_id: targetSchool,
+                _link_id: editingRelationshipLink.link_id,
+                _relationship: editRelVal,
+                _is_primary: editPrimaryVal,
+            });
+            if (error) throw error;
 
+            toast.success('Relationship updated successfully.');
+            setEditingRelationshipLink(null);
+            fetchFamilyLinks(user.id);
+            onSaved();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to update relationship';
+            setErrorMsg(msg);
+            toast.error(msg);
+        } finally {
+            setUpdatingRelBusy(false);
+        }
+    };
+
+    // Fast Set Primary
+    const handleSetPrimary = async (student: LinkedStudentTarget) => {
+        if (!user || student.is_primary) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        try {
+            const { error } = await supabase.rpc('fn_update_guardian_relationship', {
+                _school_id: targetSchool,
+                _link_id: student.link_id,
+                _relationship: student.relationship,
+                _is_primary: true,
+            });
+            if (error) throw error;
+
+            toast.success(`${student.full_name} set as primary child.`);
+            fetchFamilyLinks(user.id);
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to set primary child');
+        }
+    };
+
+    // Handle Link Student
+    const handleExecuteLinkStudent = async () => {
+        if (!user || !selectedStudentCandidate) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setLinkingStudentBusy(true);
+        setErrorMsg('');
+        try {
+            const { error } = await supabase.rpc('fn_link_student_guardian', {
+                _school_id: targetSchool,
+                _parent_id: user.id,
+                _student_id: selectedStudentCandidate.student_id,
+                _relationship: newLinkRelationship,
+                _is_primary: newLinkIsPrimary
+            });
+            if (error) throw error;
+
+            toast.success(`${selectedStudentCandidate.full_name} linked to family account!`);
+            setLinkStudentModalOpen(false);
+            setSelectedStudentCandidate(null);
+            setStudentSearchQuery('');
+            fetchFamilyLinks(user.id);
+            onSaved();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to link student';
+            setErrorMsg(msg);
+            toast.error(msg);
+        } finally {
+            setLinkingStudentBusy(false);
+        }
+    };
+
+    // Handle Add Teacher Access (single authoritative update_admin pathway)
+    const handleAddTeacherAccess = async () => {
+        if (!user) return;
+        const staffName = newStaffPersonName.trim();
+        if (!staffName) {
+            toast.error('Adult staff member full name is required (cannot use student name)');
+            return;
+        }
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) {
+            toast.error('User must be assigned to a school before enabling staff access');
+            return;
+        }
+
+        setAddingTeacherBusy(true);
+        try {
+            const body = {
+                adminId: user.id,
+                schoolId: targetSchool,
+                teacherAction: 'enable',
+                staffPersonName: staffName,
+                designation: newStaffDesignation.trim() || 'Teacher',
+                department: newStaffDepartment.trim() || 'Academics',
+            };
+            const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+            if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to add Teacher access'));
+            if (fnData?.error) throw new Error(fnData.error);
+
+            toast.success(`Teacher access granted to ${staffName}!`);
+            setAddTeacherModalOpen(false);
+            setEditStaffPersonName(staffName);
+            setEditDesignation(newStaffDesignation.trim() || 'Teacher');
+            setEditDepartment(newStaffDepartment.trim() || 'Academics');
+            if (!additionalRoles.includes('teacher') && editRole !== 'teacher') {
+                setAdditionalRoles(prev => [...prev, 'teacher']);
+            }
+            fetchStaffPinStatus(targetSchool, user.id);
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to add Teacher access');
+        } finally {
+            setAddingTeacherBusy(false);
+        }
+    };
+
+    // Handle Disable Teacher Access (single authoritative update_admin pathway)
+    const handleDisableTeacherAccess = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setDisablingTeacherBusy(true);
+        try {
+            const body = {
+                adminId: user.id,
+                schoolId: targetSchool,
+                teacherAction: 'disable',
+            };
+            const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+            if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to disable Teacher access'));
+            if (fnData?.error) throw new Error(fnData.error);
+
+            toast.success('Teacher access disabled. Family and student access remain intact.');
+            setDisableTeacherModalOpen(false);
+            setAdditionalRoles(prev => prev.filter(r => r !== 'teacher'));
+            if (editRole === 'teacher') {
+                setEditRole('parent');
+            }
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to disable Teacher access');
+        } finally {
+            setDisablingTeacherBusy(false);
+        }
+    };
+
+    // Handle Save Staff Details
+    const handleSaveStaffDetails = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+        const staffName = editStaffPersonName.trim();
+        if (!staffName) {
+            toast.error('Adult staff member name cannot be empty');
+            return;
+        }
+
+        setEditingStaffBusy(true);
+        try {
+            const body = {
+                adminId: user.id,
+                schoolId: targetSchool,
+                teacherAction: 'update_staff',
+                staffPersonName: staffName,
+                designation: editDesignation.trim(),
+                department: editDepartment.trim(),
+            };
+            const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+            if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to update staff details'));
+            if (fnData?.error) throw new Error(fnData.error);
+
+            toast.success('Staff identity details updated successfully.');
+            setEditStaffDetailsOpen(false);
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to update staff details');
+        } finally {
+            setEditingStaffBusy(false);
+        }
+    };
 
     const handleSave = async () => {
         if (!user) return;
@@ -341,14 +1128,8 @@ const UserDrawer: React.FC<{
         setMessage('');
         setErrorMsg('');
         try {
-            // Route all privileged profile mutations through the edge function.
-            // Direct client `from('profiles').update(...)` is no longer allowed
-            // for role, school, is_active, or permissions changes.
             await supabase.auth.refreshSession();
 
-            // If the target school has an email_domain, force-compose the email
-            // from the editable local-part + locked "@domain" so admins can't
-            // sneak in a foreign address.
             const composedEmail = editLockedDomain
                 ? `${(editEmailLocal || '').trim().toLowerCase()}@${editLockedDomain}`
                 : editEmail.trim();
@@ -364,8 +1145,8 @@ const UserDrawer: React.FC<{
                 body.metadataPermissions = user.metadata?.permissions ?? [];
                 body.additionalRoles = additionalRoles;
                 if (composedEmail && composedEmail !== user.email) body.email = composedEmail;
-                if (editRole === 'teacher' || additionalRoles.includes('teacher')) {
-                    body.staffPersonName = editStaffPersonName.trim() || editFullName.trim() || user.full_name || 'Teacher';
+                if (hasTeacherAccess) {
+                    body.staffPersonName = editStaffPersonName.trim() || undefined;
                     body.designation = editDesignation.trim();
                     body.department = editDepartment.trim();
                 }
@@ -438,14 +1219,14 @@ const UserDrawer: React.FC<{
                     >
                         {/* ── Header ── */}
                         <div className="flex justify-between items-center px-8 pt-8 pb-4">
-                            <h2 className="text-2xl font-bold text-foreground">User Settings</h2>
+                            <h2 className="text-2xl font-bold text-foreground">User Management</h2>
                             <button onClick={onClose} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-rose-500 transition-colors">
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        {/* ── Avatar & Info ── */}
-                        <div className="flex items-center gap-4 mx-8 mb-6 p-4 clay-card">
+                        {/* ── Avatar & Summary Card ── */}
+                        <div className="flex items-center gap-4 mx-8 mb-4 p-4 clay-card">
                             <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center text-white font-bold text-xl shadow-lg flex-shrink-0">
                                 {user.avatar_url
                                     ? <img src={user.avatar_url} className="w-full h-full object-cover rounded-2xl" alt="avatar" />
@@ -490,511 +1271,619 @@ const UserDrawer: React.FC<{
 
                         {/* ── Alerts ── */}
                         <div className="px-8">
-                            {message && <div className="mb-4 p-3 bg-emerald-50 text-emerald-700 text-sm font-medium rounded-xl border border-emerald-100">{message}</div>}
-                            {errorMsg && <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm font-medium rounded-xl border border-red-100">{errorMsg}</div>}
-                            {isProtected && <div className="mb-4 p-3 bg-amber-50 text-amber-800 text-sm font-medium rounded-xl border border-amber-200">🔒 This is a protected root superadmin account. Role, status, school and email are locked.</div>}
+                            {message && <div className="mb-3 p-3 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-xl border border-emerald-100">{message}</div>}
+                            {errorMsg && <div className="mb-3 p-3 bg-red-50 text-red-700 text-xs font-medium rounded-xl border border-red-100">{errorMsg}</div>}
+                            {isProtected && <div className="mb-3 p-3 bg-amber-50 text-amber-800 text-xs font-medium rounded-xl border border-amber-200">🔒 This is a protected root superadmin account. Role, status, school and email are locked.</div>}
                         </div>
 
+                        {/* ── Body: 5 Distinct High-Clarity Cards ── */}
+                        <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-5">
 
-                        {/* ── Body ── */}
-                        <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-6">
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 1. ACCOUNT CARD */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            <div className="p-4.5 rounded-2xl bg-white border border-gray-200/90 shadow-2xs space-y-3.5">
+                                <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                                    <div className="flex items-center gap-2">
+                                        <UserCheck className="w-4 h-4 text-primary" />
+                                        <span className="text-xs font-bold uppercase tracking-wider text-foreground">Account Login & Roles</span>
+                                    </div>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                        {isActive ? 'Active' : 'Disabled'}
+                                    </span>
+                                </div>
 
-                            {/* ── Section: Identity ── */}
-                            <div>
-                                <p className="text-[11px] font-bold text-muted uppercase tracking-widest mb-3">Identity</p>
-                                <div className="space-y-3">
-                                    {/* Email */}
-                                    <div>
-                                        <label className="text-xs font-semibold text-muted block mb-1.5">
-                                            <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Email Address</span>
-                                        </label>
-                                        {editLockedDomain ? (
-                                            <div className={`flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-primary/20 ${isProtected ? 'opacity-60' : ''}`}>
-                                                <input
-                                                    type="text"
-                                                    value={editEmailLocal}
-                                                    onChange={e => setEditEmailLocal(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
-                                                    disabled={isProtected}
-                                                    className="flex-1 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed font-mono"
-                                                    placeholder="john.doe"
-                                                    autoComplete="off"
-                                                />
-                                                <span className="px-3 py-2 bg-stone-50 border-l border-gray-200 text-sm text-stone-600 font-mono truncate max-w-[55%]" title={`@${editLockedDomain}`}>
-                                                    @{editLockedDomain}
-                                                </span>
-                                            </div>
-                                        ) : isSuperadmin ? (
+                                {/* Email Address */}
+                                <div>
+                                    <label className="text-xs font-semibold text-muted block mb-1">
+                                        <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Email Address</span>
+                                    </label>
+                                    {editLockedDomain ? (
+                                        <div className={`flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-primary/20 ${isProtected ? 'opacity-60' : ''}`}>
                                             <input
-                                                type="email"
-                                                value={editEmail}
-                                                onChange={e => setEditEmail(e.target.value)}
+                                                type="text"
+                                                value={editEmailLocal}
+                                                onChange={e => setEditEmailLocal(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
                                                 disabled={isProtected}
-                                                className="clay-input w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                                                placeholder="user@example.com"
+                                                className="flex-1 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed font-mono"
+                                                placeholder="john.doe"
+                                                autoComplete="off"
                                             />
-                                        ) : (
-                                            <div className="clay-input w-full text-sm bg-stone-50 text-stone-600 font-mono truncate">
-                                                {editEmail || '—'}
-                                            </div>
-                                        )}
-                                        <p className="text-[10px] text-muted mt-1">
-                                            {editLockedDomain
-                                                ? <>Full email: <span className="font-mono text-foreground">{(editEmailLocal || 'username')}@{editLockedDomain}</span></>
-                                                : 'Changing email will update login credentials via the admin function.'}
-                                        </p>
-                                    </div>
-
-
-                                    {/* Role + Status */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-xs font-semibold text-muted block mb-1.5">Role</label>
-                                            <select
-                                                value={editRole}
-                                                onChange={e => setEditRole(e.target.value)}
-                                                disabled={isProtected}
-                                                className="clay-input w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                                            >
-                                                <option value="">Select Role</option>
-                                                {Object.keys(ROLE_CONFIG)
-                                                    .filter(r => isSuperadmin || r !== 'superadmin')
-                                                    .map(r => (
-                                                        <option key={r} value={r}>{ROLE_CONFIG[r].label}</option>
-                                                    ))}
-                                            </select>
+                                            <span className="px-3 py-2 bg-stone-50 border-l border-gray-200 text-sm text-stone-600 font-mono truncate max-w-[55%]" title={`@${editLockedDomain}`}>
+                                                @{editLockedDomain}
+                                            </span>
                                         </div>
-                                        <div>
-                                            <label className="text-xs font-semibold text-muted block mb-1.5">Account Status</label>
-                                            <button
-                                                onClick={() => !isProtected && setIsActive(!isActive)}
-                                                disabled={isProtected}
-                                                className={`w-full py-2.5 px-3 rounded-xl shadow-sm border font-semibold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${isActive
-                                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                                                    : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
-                                                    }`}
-                                            >
-                                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                                                {isActive ? 'Active' : 'Disabled'}
-                                            </button>
+                                    ) : isSuperadmin ? (
+                                        <input
+                                            type="email"
+                                            value={editEmail}
+                                            onChange={e => setEditEmail(e.target.value)}
+                                            disabled={isProtected}
+                                            className="clay-input w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                                            placeholder="user@example.com"
+                                        />
+                                    ) : (
+                                        <div className="clay-input w-full text-sm bg-stone-50 text-stone-600 font-mono truncate">
+                                            {editEmail || '—'}
                                         </div>
-                                    </div>
+                                    )}
+                                </div>
 
-                                    {/* School */}
+                                {/* Primary Role + School Assignment */}
+                                <div className="grid grid-cols-2 gap-2.5">
                                     <div>
-                                        <label className="text-xs font-semibold text-muted block mb-1.5">
-                                            <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3" /> School Assignment</span>
+                                        <label className="text-xs font-semibold text-muted block mb-1">Primary Role</label>
+                                        <select
+                                            value={editRole}
+                                            onChange={e => setEditRole(e.target.value)}
+                                            disabled={isProtected}
+                                            className="clay-input w-full text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                                        >
+                                            <option value="">Select Role</option>
+                                            {Object.keys(ROLE_CONFIG)
+                                                .filter(r => isSuperadmin || r !== 'superadmin')
+                                                .map(r => (
+                                                    <option key={r} value={r}>{ROLE_CONFIG[r].label}</option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-semibold text-muted block mb-1">
+                                            <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3" /> School</span>
                                         </label>
                                         {isSuperadmin ? (
                                             <select
                                                 value={editSchool}
                                                 onChange={e => setEditSchool(e.target.value)}
                                                 disabled={isProtected}
-                                                className="clay-input w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                                                className="clay-input w-full text-xs disabled:opacity-60 disabled:cursor-not-allowed"
                                             >
-                                                <option value="">Platform Core (No School)</option>
+                                                <option value="">Platform Core</option>
                                                 {schools.map(s => (
                                                     <option key={s.id} value={s.id}>{s.name}</option>
                                                 ))}
                                             </select>
                                         ) : (
-                                            <div className="clay-input w-full text-sm bg-stone-50 text-stone-700 flex items-center justify-between">
-                                                <span className="truncate">{editSelectedSchool?.name ?? 'Platform Core'}</span>
-                                                <span className="text-[10px] font-bold uppercase tracking-widest text-muted">Locked</span>
+                                            <div className="clay-input w-full text-xs bg-stone-50 text-stone-700 truncate">
+                                                {editSelectedSchool?.name ?? 'Platform Core'}
                                             </div>
                                         )}
-                                        <p className="text-[10px] text-muted mt-1">
-                                            {isSuperadmin
-                                                ? 'Transfer this user to another school or set as a platform-level core member.'
-                                                : 'Only the platform superadmin can move users between schools.'}
-                                        </p>
                                     </div>
+                                </div>
 
-                                    {/* Additional Roles */}
-                                    <div>
-                                        <label className="text-xs font-semibold text-muted block mb-1.5">
-                                            <span className="inline-flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Additional Roles</span>
-                                        </label>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {Object.keys(ROLE_CONFIG)
-                                                .filter(r => isSuperadmin || r !== 'superadmin')
-                                                .filter(r => r !== editRole)
-                                                .map(r => {
-                                                    const checked = additionalRoles.includes(r);
-                                                    return (
-                                                        <label
-                                                            key={r}
-                                                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${checked
-                                                                ? `${ROLE_CONFIG[r].bg} ${ROLE_CONFIG[r].color} border-transparent`
-                                                                : 'bg-white border-gray-200 text-stone-600 hover:bg-stone-50'
-                                                                } ${isProtected ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                className="w-3.5 h-3.5 accent-current"
-                                                                checked={checked}
-                                                                disabled={isProtected}
-                                                                onChange={e => {
-                                                                    setAdditionalRoles(prev =>
-                                                                        e.target.checked
-                                                                            ? [...prev, r]
-                                                                            : prev.filter(x => x !== r)
-                                                                    );
-                                                                }}
-                                                            />
-                                                            {ROLE_CONFIG[r].label}
-                                                        </label>
-                                                    );
-                                                })}
-                                        </div>
-                                        <p className="text-[10px] text-muted mt-1.5">
-                                            Grant extra roles on top of the primary one — e.g. a teacher who also handles reception.
-                                        </p>
-                                    </div>
-
-                                    {/* Teacher / Staff Identity Details */}
-                                    {(editRole === 'teacher' || additionalRoles.includes('teacher')) && (
-                                        <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
-                                            <div className="flex items-center gap-2">
-                                                <GraduationCap className="w-4 h-4 text-amber-800" />
-                                                <span className="text-xs font-bold uppercase tracking-wider text-amber-900">Teacher / Staff Identity</span>
-                                            </div>
-                                            <p className="text-[11px] text-amber-800/80 leading-relaxed">
-                                                Adult educator identity used on class timetables, subject assignments, and teacher directories. Preserves family and student names.
-                                            </p>
-                                            <div>
-                                                <label className="text-xs font-semibold text-stone-700 block mb-1">Staff Member Full Name</label>
-                                                <input
-                                                    type="text"
-                                                    value={editStaffPersonName}
-                                                    onChange={e => setEditStaffPersonName(e.target.value)}
-                                                    placeholder={editFullName || "e.g. Sunita Sharma"}
-                                                    className="clay-input w-full text-sm bg-white"
-                                                />
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">Designation</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editDesignation}
-                                                        onChange={e => setEditDesignation(e.target.value)}
-                                                        placeholder="e.g. Senior Teacher"
-                                                        className="clay-input w-full text-sm bg-white"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-semibold text-stone-700 block mb-1">Department</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editDepartment}
-                                                        onChange={e => setEditDepartment(e.target.value)}
-                                                        placeholder="e.g. Mathematics"
-                                                        className="clay-input w-full text-sm bg-white"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* ── Section: Staff Mode Security & PIN (Phase 5) ── */}
-                                    {(editRole === 'teacher' || additionalRoles.includes('teacher')) && (
-                                        <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <Lock className="w-4 h-4 text-amber-800" />
-                                                    <span className="text-xs font-bold uppercase tracking-wider text-amber-900">Staff Mode PIN Security</span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    {staffPinInfo?.has_pin ? (
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                            PIN Active
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-200 text-stone-700">
-                                                            No PIN Set
-                                                        </span>
-                                                    )}
-                                                    {staffPinInfo?.is_locked && (
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                                                            Locked
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            <p className="text-[11px] text-amber-800/80 leading-relaxed">
-                                                Protects Teacher view with a 6-digit staff unlock PIN. Server tracks failed attempts and locks out after 5 failures.
-                                            </p>
-
-                                            {showResetPinInput ? (
-                                                <div className="p-3 bg-white rounded-xl border border-amber-200 space-y-2.5">
-                                                    <label className="text-xs font-semibold text-stone-700 block">
-                                                        Issue Temporary 6-Digit PIN
-                                                    </label>
-                                                    <div className="flex gap-2">
+                                {/* Additional Roles — TEACHER is filtered out so it's managed via Staff Access only! */}
+                                <div>
+                                    <label className="text-xs font-semibold text-muted block mb-1.5">
+                                        <span className="inline-flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Additional Roles</span>
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                        {Object.keys(ROLE_CONFIG)
+                                            .filter(r => isSuperadmin || r !== 'superadmin')
+                                            .filter(r => r !== editRole)
+                                            .filter(r => r !== 'teacher') // Excluded: managed intentionally via Staff Access card
+                                            .map(r => {
+                                                const checked = additionalRoles.includes(r);
+                                                return (
+                                                    <label
+                                                        key={r}
+                                                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${checked
+                                                            ? `${ROLE_CONFIG[r].bg} ${ROLE_CONFIG[r].color} border-transparent`
+                                                            : 'bg-white border-gray-200 text-stone-600 hover:bg-stone-50'
+                                                            } ${isProtected ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                                    >
                                                         <input
-                                                            type="text"
-                                                            maxLength={8}
-                                                            value={tempPinValue}
-                                                            onChange={e => setTempPinValue(e.target.value.replace(/\D/g, ''))}
-                                                            placeholder="e.g. 123456"
-                                                            className="clay-input flex-1 text-sm bg-stone-50"
+                                                            type="checkbox"
+                                                            className="w-3.5 h-3.5 accent-current"
+                                                            checked={checked}
+                                                            disabled={isProtected}
+                                                            onChange={e => {
+                                                                setAdditionalRoles(prev =>
+                                                                    e.target.checked
+                                                                        ? [...prev, r]
+                                                                        : prev.filter(x => x !== r)
+                                                                );
+                                                            }}
                                                         />
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setTempPinValue(Math.floor(100000 + Math.random() * 900000).toString())}
-                                                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 hover:bg-stone-100 text-stone-700"
-                                                        >
-                                                            Generate
-                                                        </button>
-                                                    </div>
-                                                    <div className="flex justify-end gap-2 pt-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setShowResetPinInput(false); setTempPinValue(''); }}
-                                                            className="text-xs text-stone-600 px-2.5 py-1 rounded hover:bg-stone-100"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            disabled={resettingPin || tempPinValue.length < 6}
-                                                            onClick={handleIssueStaffPin}
-                                                            className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-                                                        >
-                                                            {resettingPin ? 'Saving…' : 'Save Temporary PIN'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowResetPinInput(true)}
-                                                    className="w-full text-xs font-bold px-3 py-2 rounded-xl bg-white border border-amber-200 text-amber-900 hover:bg-amber-100/50 transition-colors shadow-2xs flex items-center justify-center gap-1.5"
-                                                >
-                                                    <KeyRound className="w-3.5 h-3.5 text-amber-700" />
-                                                    {staffPinInfo?.has_pin ? 'Reset Staff PIN / Set Temporary' : 'Issue Initial Staff PIN'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* ── Section: Family Relationships (Phase 4) ── */}
-                                    <div className="p-4 rounded-2xl bg-white border border-gray-200 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <UsersIcon className="w-4 h-4 text-primary" />
-                                                <span className="text-xs font-bold uppercase tracking-wider text-foreground">
-                                                    {(editRole === 'student' || additionalRoles.includes('student'))
-                                                        ? 'Linked Guardians & Parents'
-                                                        : 'Linked Family Children'}
-                                                </span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => { setFamilySearchOpen(!familySearchOpen); setSelectedCandidate(null); }}
-                                                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-700 transition-colors"
-                                            >
-                                                {familySearchOpen ? 'Close' : (editRole === 'student' || additionalRoles.includes('student')) ? '+ Link Guardian' : '+ Link Child'}
-                                            </button>
-                                        </div>
-
-                                        {familyLoading ? (
-                                            <p className="text-xs text-muted py-2">Loading family relationships…</p>
-                                        ) : (
-                                            <>
-                                                {/* Show Linked Guardians for Students */}
-                                                {(editRole === 'student' || additionalRoles.includes('student')) && (
-                                                    <div className="space-y-1.5">
-                                                        {linkedGuardians.length === 0 ? (
-                                                            <p className="text-xs text-stone-400 italic">No guardians linked to this student yet.</p>
-                                                        ) : (
-                                                            linkedGuardians.map(g => (
-                                                                <div key={g.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-xs font-bold text-foreground truncate">
-                                                                            {g.staff_person_name || g.full_name}
-                                                                            <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({g.relationship})</span>
-                                                                            {g.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
-                                                                        </p>
-                                                                        <p className="text-[11px] font-mono text-muted truncate">{g.email}</p>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                                                        {g.is_staff && (
-                                                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
-                                                                                Staff / Teacher
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {/* Show Linked Children for Staff / Parents */}
-                                                {(editRole !== 'student' && !additionalRoles.includes('student')) && (
-                                                    <div className="space-y-1.5">
-                                                        {linkedStudents.length === 0 ? (
-                                                            <p className="text-xs text-stone-400 italic">No students linked to this account.</p>
-                                                        ) : (
-                                                            linkedStudents.map(s => (
-                                                                <div key={s.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-xs font-bold text-foreground truncate">
-                                                                            🎓 {s.full_name}
-                                                                            {s.class_name && <span className="ml-1 text-stone-600 font-medium">({s.class_name})</span>}
-                                                                            <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({s.relationship})</span>
-                                                                            {s.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
-                                                                        </p>
-                                                                        <p className="text-[11px] font-mono text-muted truncate">{s.email}</p>
-                                                                    </div>
-                                                                </div>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-
-                                        {/* Inline Search & Link Box */}
-                                        {familySearchOpen && (
-                                            <div className="pt-3 border-t border-gray-100 space-y-2.5">
-                                                <label className="text-xs font-semibold text-stone-700 block">
-                                                    {(editRole === 'student' || additionalRoles.includes('student')) ? 'Search Guardian / Teacher to Link' : 'Search Student to Link'}
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={familySearchQuery}
-                                                    onChange={e => setFamilySearchQuery(e.target.value)}
-                                                    placeholder="Search by name, email..."
-                                                    className="clay-input w-full text-xs py-1.5 bg-stone-50"
-                                                    autoFocus
-                                                />
-                                                <div className="space-y-1 max-h-32 overflow-y-auto">
-                                                    {searchingFamily && <p className="text-xs text-muted text-center py-1">Searching…</p>}
-                                                    {!searchingFamily && familyCandidates.length === 0 && (
-                                                        <p className="text-xs text-stone-400 text-center py-1">
-                                                            {familySearchQuery ? 'No accounts match search' : 'Type to search'}
-                                                        </p>
-                                                    )}
-                                                    {familyCandidates.map(c => {
-                                                        const isSelected = selectedCandidate?.guardian_id === c.guardian_id;
-                                                        return (
-                                                            <div
-                                                                key={c.guardian_id}
-                                                                onClick={() => setSelectedCandidate(c)}
-                                                                className={`p-2 rounded-lg border text-xs cursor-pointer transition-all flex items-center justify-between ${
-                                                                    isSelected ? 'bg-teal-50 border-teal-400 text-teal-900 font-bold' : 'bg-white border-stone-200 hover:bg-stone-50'
-                                                                }`}
-                                                            >
-                                                                <span className="truncate">{c.staff_person_name || c.full_name}</span>
-                                                                <span className="text-[10px] text-muted font-mono">{c.email}</span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-
-                                                {selectedCandidate && (
-                                                    <div className="p-3 rounded-xl bg-stone-50 border border-teal-300 space-y-2">
-                                                        <p className="text-xs font-semibold text-foreground">
-                                                            Link <strong className="text-primary">{selectedCandidate.staff_person_name || selectedCandidate.full_name}</strong>
-                                                        </p>
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <div>
-                                                                <label className="text-[10px] font-semibold text-muted block mb-0.5">Relationship</label>
-                                                                <select
-                                                                    value={linkRelationship}
-                                                                    onChange={e => setLinkRelationship(e.target.value)}
-                                                                    className="clay-input w-full text-xs py-1 bg-white"
-                                                                >
-                                                                    <option value="mother">Mother</option>
-                                                                    <option value="father">Father</option>
-                                                                    <option value="guardian">Legal Guardian</option>
-                                                                    <option value="parent">Parent</option>
-                                                                </select>
-                                                            </div>
-                                                            <div className="flex items-center pt-4">
-                                                                <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={linkIsPrimary}
-                                                                        onChange={e => setLinkIsPrimary(e.target.checked)}
-                                                                        className="w-3.5 h-3.5 accent-primary"
-                                                                    />
-                                                                    Primary
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleExecuteLink}
-                                                            disabled={linkingBusy}
-                                                            className="w-full py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
-                                                        >
-                                                            {linkingBusy ? 'Linking…' : 'Confirm Link'}
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                                        {ROLE_CONFIG[r].label}
+                                                    </label>
+                                                );
+                                            })}
                                     </div>
+                                    <p className="text-[10px] text-muted mt-1">
+                                        Educator/Teacher access is managed intentionally in the Staff Access section below.
+                                    </p>
                                 </div>
                             </div>
 
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 2. FAMILY ACCESS CARD */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            <div className="p-4.5 rounded-2xl bg-white border border-gray-200/90 shadow-2xs space-y-3.5">
+                                <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                                    <div className="flex items-center gap-2">
+                                        <UsersIcon className="w-4 h-4 text-purple-600" />
+                                        <span className="text-xs font-bold uppercase tracking-wider text-foreground">Family Access</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            (user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0)
+                                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                                : 'bg-stone-100 text-stone-600'
+                                        }`}>
+                                            {(user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0)
+                                                ? 'Parent Access: Active'
+                                                : 'Parent Access: Inactive'}
+                                        </span>
+                                    </div>
+                                </div>
 
-                            {/* ── Section: Recovery Email ── */}
-                            {!isProtected && (
-                                <RecoveryEmailSection userId={user.id} userEmail={user.email} />
-                            )}
+                                {/* Student View: Linked Guardians */}
+                                {(editRole === 'student' || additionalRoles.includes('student')) && (
+                                    <div className="space-y-2">
+                                        <p className="text-[11px] font-semibold text-stone-600">Linked Guardians / Parents:</p>
+                                        {familyLoading ? (
+                                            <p className="text-xs text-muted py-1">Loading family links…</p>
+                                        ) : linkedGuardians.length === 0 ? (
+                                            <p className="text-xs text-stone-400 italic">No guardians linked to this student yet.</p>
+                                        ) : (
+                                            <div className="space-y-1.5">
+                                                {linkedGuardians.map(g => (
+                                                    <div key={g.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-bold text-foreground truncate">
+                                                                {g.staff_person_name || g.full_name}
+                                                                <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({g.relationship})</span>
+                                                                {g.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
+                                                            </p>
+                                                            <p className="text-[11px] font-mono text-muted truncate">{g.email}</p>
+                                                        </div>
+                                                        {g.is_staff && (
+                                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
+                                                                Teacher
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
-                            {/* Danger zone: permanent delete */}
-                            {!isProtected && (
-                                <div className="pt-3 border-t border-rose-100">
-                                    <button
-                                        onClick={() => setDeleteOpen(true)}
-                                        className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100 transition-colors"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                        Permanently Delete User
-                                    </button>
-                                    <p className="text-[10px] text-muted mt-1.5">Irreversible. Removes the account, profile, and access immediately.</p>
+                                {/* Family Account View: Linked Children */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[11px] font-semibold text-stone-600">Linked Children ({linkedStudents.length}):</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedStudentCandidate(null);
+                                                setStudentSearchQuery('');
+                                                setLinkStudentModalOpen(true);
+                                            }}
+                                            className="text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" />
+                                            Link Existing Student
+                                        </button>
+                                    </div>
+
+                                    {familyLoading ? (
+                                        <p className="text-xs text-muted py-2">Loading linked children…</p>
+                                    ) : linkedStudents.length === 0 ? (
+                                        <div className="p-3.5 rounded-xl bg-stone-50 border border-dashed border-stone-200 text-center space-y-1">
+                                            <p className="text-xs text-stone-500">No students are currently linked to this family account.</p>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedStudentCandidate(null);
+                                                    setStudentSearchQuery('');
+                                                    setLinkStudentModalOpen(true);
+                                                }}
+                                                className="text-xs font-bold text-primary underline"
+                                            >
+                                                Add Child
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {linkedStudents.map(s => (
+                                                <div
+                                                    key={s.link_id}
+                                                    className={`p-3 rounded-xl border transition-all space-y-2 ${
+                                                        s.is_primary
+                                                            ? 'bg-purple-50/40 border-purple-200/90 shadow-2xs'
+                                                            : 'bg-stone-50/80 border-stone-200'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="text-xs font-bold text-foreground truncate">
+                                                                    🎓 {s.full_name}
+                                                                </span>
+                                                                {s.is_primary && (
+                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                                        Primary Child
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded capitalize">
+                                                                    {s.relationship}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[11px] text-stone-600 mt-0.5">
+                                                                {s.class_name ? `Class: ${s.class_name}${s.section_name ? ` - ${s.section_name}` : ''}` : 'Class: Not enrolled'}
+                                                                {s.login_id ? ` • Adm ID: ${s.login_id}` : ''}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Actions per child */}
+                                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                                            {!s.is_primary && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSetPrimary(s)}
+                                                                    title="Make primary child"
+                                                                    className="px-2 py-1 text-[10px] font-bold rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                                >
+                                                                    Set Primary
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingRelationshipLink(s);
+                                                                    setEditRelVal(s.relationship);
+                                                                    setEditPrimaryVal(s.is_primary);
+                                                                }}
+                                                                title="Edit relationship"
+                                                                className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                            >
+                                                                <Settings2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setUnlinkingStudent(s)}
+                                                                title="Unlink child from family"
+                                                                className="p-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
+                                                            >
+                                                                <UserMinus className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 3. STAFF ACCESS CARD */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            <div className="p-4.5 rounded-2xl bg-white border border-gray-200/90 shadow-2xs space-y-3.5">
+                                <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                                    <div className="flex items-center gap-2">
+                                        <GraduationCap className="w-4 h-4 text-sky-700" />
+                                        <span className="text-xs font-bold uppercase tracking-wider text-foreground">Staff Access</span>
+                                    </div>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        hasTeacherAccess ? 'bg-sky-100 text-sky-800 border border-sky-200' : 'bg-stone-100 text-stone-600'
+                                    }`}>
+                                        {hasTeacherAccess ? 'Teacher Access: Active' : 'No Staff Access'}
+                                    </span>
+                                </div>
+
+                                {hasTeacherAccess ? (
+                                    <div className="p-3.5 rounded-xl bg-sky-50/60 border border-sky-200/80 space-y-3">
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <p className="text-xs font-bold text-sky-950">
+                                                    {editStaffPersonName || user.full_name} <span className="font-normal text-sky-800">— Teacher</span>
+                                                </p>
+                                                <p className="text-[11px] text-sky-800 mt-0.5">
+                                                    {editDesignation || 'Teacher'} • {editDepartment || 'Academics'}
+                                                </p>
+                                            </div>
+                                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                Active Staff
+                                            </span>
+                                        </div>
+
+                                        <p className="text-[10px] text-sky-800/80 leading-relaxed">
+                                            Canonical adult educator identity used on timetables, subject assignments, and gradebooks.
+                                        </p>
+
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditStaffDetailsOpen(true)}
+                                                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-white border border-sky-200 text-sky-900 hover:bg-sky-100/50 transition-colors shadow-2xs"
+                                            >
+                                                Edit Staff Details
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisableTeacherModalOpen(true)}
+                                                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition-colors shadow-2xs"
+                                            >
+                                                Disable Teacher Access
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-3.5 rounded-xl bg-stone-50 border border-dashed border-stone-200 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs font-medium text-stone-700">No educator access configured.</p>
+                                            <p className="text-[10px] text-muted">Grant Teacher access without changing family student accounts.</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setNewStaffPersonName('');
+                                                setNewStaffDesignation('Teacher');
+                                                setNewStaffDepartment('Academics');
+                                                setAddTeacherModalOpen(true);
+                                            }}
+                                            className="px-3 py-1.5 text-xs font-bold rounded-xl bg-sky-600 text-white hover:bg-sky-700 transition-colors shadow-2xs flex items-center gap-1"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" />
+                                            Add Teacher Access
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 4. STAFF SECURITY CARD (Only if Staff identity exists) */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            {(hasTeacherAccess || editStaffPersonName) && (
+                                <div className="p-4.5 rounded-2xl bg-amber-50/60 border border-amber-200/80 shadow-2xs space-y-3">
+                                    <div className="flex items-center justify-between pb-2 border-b border-amber-200/60">
+                                        <div className="flex items-center gap-2">
+                                            <Lock className="w-4 h-4 text-amber-800" />
+                                            <span className="text-xs font-bold uppercase tracking-wider text-amber-900">Staff Mode Security</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                staffPinInfo?.has_pin
+                                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                                    : 'bg-stone-200 text-stone-700'
+                                            }`}>
+                                                {staffPinInfo?.has_pin ? 'PIN Configured' : 'No PIN Set'}
+                                            </span>
+                                            {staffPinInfo?.is_locked && (
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                                    PIN Locked
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <p className="text-[11px] text-amber-900/80 leading-relaxed">
+                                        Secures educator mode on shared devices. PIN is securely verified and rate-limited against brute-force attempts.
+                                    </p>
+
+                                    {showResetPinInput ? (
+                                        <div className="p-3 bg-white rounded-xl border border-amber-200 space-y-2.5">
+                                            <label className="text-xs font-semibold text-stone-700 block">
+                                                Issue Temporary 6-Digit Staff PIN
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    maxLength={8}
+                                                    value={tempPinValue}
+                                                    onChange={e => setTempPinValue(e.target.value.replace(/\D/g, ''))}
+                                                    placeholder="e.g. 123456"
+                                                    className="clay-input flex-1 text-sm bg-stone-50"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTempPinValue(Math.floor(100000 + Math.random() * 900000).toString())}
+                                                    className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 hover:bg-stone-100 text-stone-700"
+                                                >
+                                                    Generate
+                                                </button>
+                                            </div>
+                                            <div className="flex justify-end gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setShowResetPinInput(false); setTempPinValue(''); }}
+                                                    className="text-xs text-stone-600 px-2.5 py-1 rounded hover:bg-stone-100"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={resettingPin || tempPinValue.length < 6}
+                                                    onClick={handleIssueStaffPin}
+                                                    className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                                                >
+                                                    {resettingPin ? 'Saving…' : 'Save PIN'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowResetPinInput(true)}
+                                            className="w-full text-xs font-bold px-3 py-2 rounded-xl bg-white border border-amber-200 text-amber-900 hover:bg-amber-100/50 transition-colors shadow-2xs flex items-center justify-center gap-1.5"
+                                        >
+                                            <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                                            {staffPinInfo?.has_pin ? 'Reset Staff PIN / Issue Temporary' : 'Issue Initial Staff PIN'}
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
-                            {/* ── Section: Security ── */}
-                            <div className="pt-2 border-t border-gray-100">
-                                <p className="text-[11px] font-bold text-muted uppercase tracking-widest mb-3">Security</p>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="text-xs font-semibold text-muted block mb-1.5">New Password</label>
-                                        <input
-                                            type="password"
-                                            placeholder="Minimum 6 characters"
-                                            className="clay-input w-full text-sm"
-                                            value={newPass}
-                                            onChange={e => setNewPass(e.target.value)}
-                                        />
-                                    </div>
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 5. ACCOUNT ACTIONS CARD */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            <div className="p-4.5 rounded-2xl bg-white border border-gray-200/90 shadow-2xs space-y-3.5">
+                                <div className="pb-2 border-b border-gray-100">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-foreground">Account Actions & Security</span>
+                                </div>
+
+                                {/* Status Toggle Button */}
+                                <div>
+                                    <label className="text-xs font-semibold text-muted block mb-1">Account Activation Status</label>
+                                    <button
+                                        onClick={() => !isProtected && setIsActive(!isActive)}
+                                        disabled={isProtected}
+                                        className={`w-full py-2.5 px-3 rounded-xl shadow-sm border font-semibold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                            isActive
+                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                                : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                                        }`}
+                                    >
+                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                                        {isActive ? 'Account is Active (Click to Disable)' : 'Account is Disabled (Click to Activate)'}
+                                    </button>
+                                </div>
+
+                                {/* Password Reset */}
+                                <div className="space-y-2 pt-2 border-t border-gray-100">
+                                    <label className="text-xs font-semibold text-muted block">Set New Password</label>
+                                    <input
+                                        type="password"
+                                        placeholder="Minimum 6 characters"
+                                        className="clay-input w-full text-xs"
+                                        value={newPass}
+                                        onChange={e => setNewPass(e.target.value)}
+                                    />
                                     <button
                                         onClick={handlePasswordReset}
                                         disabled={passSaving || !newPass}
-                                        className="w-full clay-btn-outline justify-center gap-2 py-3 text-sm flex items-center disabled:opacity-50"
+                                        className="w-full clay-btn-outline justify-center gap-2 py-2 text-xs flex items-center disabled:opacity-50"
                                     >
-                                        <Key className="w-4 h-4" />
-                                        {passSaving ? 'Resetting...' : 'Reset User Password'}
+                                        <Key className="w-3.5 h-3.5" />
+                                        {passSaving ? 'Resetting…' : 'Reset User Password'}
                                     </button>
                                 </div>
+
+                                {/* Recovery Email */}
+                                {!isProtected && (
+                                    <div className="pt-2 border-t border-gray-100">
+                                        <RecoveryEmailSection userId={user.id} userEmail={user.email} />
+                                    </div>
+                                )}
+
+                                {/* Danger zone: Permanent Delete */}
+                                {!isProtected && (
+                                    <div className="pt-2 border-t border-rose-100">
+                                        <button
+                                            onClick={() => setDeleteOpen(true)}
+                                            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            Permanently Delete User
+                                        </button>
+                                        <p className="text-[10px] text-muted mt-1">Irreversible. Removes account credentials immediately.</p>
+                                    </div>
+                                )}
                             </div>
+
                         </div>
 
-                        {/* ── Footer: Save ── */}
+                        {/* ── Footer: Save Changes ── */}
                         <div className="px-8 pb-8 pt-4 border-t border-gray-200 bg-[#FAF9F6]">
                             <button onClick={handleSave} disabled={saving} className="w-full clay-btn py-3 disabled:opacity-50">
-                                {saving ? 'Saving...' : 'Save Changes'}
+                                {saving ? 'Saving Changes…' : 'Save Changes'}
                             </button>
                         </div>
                     </motion.div>
+
+                    {/* Modals */}
+                    <UnlinkChildConfirmModal
+                        isOpen={!!unlinkingStudent}
+                        onClose={() => setUnlinkingStudent(null)}
+                        student={unlinkingStudent}
+                        onConfirm={handleUnlinkStudent}
+                        busy={unlinkingBusy}
+                    />
+
+                    <EditRelationshipModal
+                        isOpen={!!editingRelationshipLink}
+                        onClose={() => setEditingRelationshipLink(null)}
+                        student={editingRelationshipLink}
+                        relationship={editRelVal}
+                        setRelationship={setEditRelVal}
+                        isPrimary={editPrimaryVal}
+                        setIsPrimary={setEditPrimaryVal}
+                        onSave={handleUpdateRelationship}
+                        busy={updatingRelBusy}
+                    />
+
+                    <LinkStudentModal
+                        isOpen={linkStudentModalOpen}
+                        onClose={() => setLinkStudentModalOpen(false)}
+                        searchQuery={studentSearchQuery}
+                        setSearchQuery={setStudentSearchQuery}
+                        searching={searchingStudents}
+                        candidates={studentCandidates}
+                        selected={selectedStudentCandidate}
+                        setSelected={setSelectedStudentCandidate}
+                        relationship={newLinkRelationship}
+                        setRelationship={setNewLinkRelationship}
+                        isPrimary={newLinkIsPrimary}
+                        setIsPrimary={setNewLinkIsPrimary}
+                        onLink={handleExecuteLinkStudent}
+                        busy={linkingStudentBusy}
+                    />
+
+                    <AddTeacherModal
+                        isOpen={addTeacherModalOpen}
+                        onClose={() => setAddTeacherModalOpen(false)}
+                        staffName={newStaffPersonName}
+                        setStaffName={setNewStaffPersonName}
+                        designation={newStaffDesignation}
+                        setDesignation={setNewStaffDesignation}
+                        department={newStaffDepartment}
+                        setDepartment={setNewStaffDepartment}
+                        onConfirm={handleAddTeacherAccess}
+                        busy={addingTeacherBusy}
+                    />
+
+                    <DisableTeacherModal
+                        isOpen={disableTeacherModalOpen}
+                        onClose={() => setDisableTeacherModalOpen(false)}
+                        staffName={editStaffPersonName || user.full_name || 'Staff Member'}
+                        onConfirm={handleDisableTeacherAccess}
+                        busy={disablingTeacherBusy}
+                    />
+
+                    <EditStaffDetailsModal
+                        isOpen={editStaffDetailsOpen}
+                        onClose={() => setEditStaffDetailsOpen(false)}
+                        staffName={editStaffPersonName}
+                        setStaffName={setEditStaffPersonName}
+                        designation={editDesignation}
+                        setDesignation={setEditDesignation}
+                        department={editDepartment}
+                        setDepartment={setEditDepartment}
+                        onSave={handleSaveStaffDetails}
+                        busy={editingStaffBusy}
+                    />
 
                     <DeleteUserConfirmModal
                         isOpen={deleteOpen}

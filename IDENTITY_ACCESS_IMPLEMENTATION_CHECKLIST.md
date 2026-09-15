@@ -1201,6 +1201,41 @@ requested student
 
 # PHASE 8 — ADMIN / SUPERADMIN FAMILY MANAGEMENT UI
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915030000_phase8_admin_family_management.sql`.
+  - Step 1: Deterministic window CTE (`ranked_active_primaries`) to resolve existing multi-primary rows before adding unique constraint.
+  - Step 2: Partial unique index `uq_parent_student_active_primary` on `parent_student (parent_id, school_id) WHERE status = 'active' AND is_primary = true`.
+  - Step 3: `fn_search_students_for_family` with school tenancy and untrusted `_parent_id` validation; returns safe minimal fields (`student_id`, `full_name`, `login_id`, `class_name`, `section_name`, `already_linked`).
+  - Step 4: Hardened `fn_link_student_guardian` enforcing admin tenancy, single primary atomic update, upserting `user_roles` with `role = 'parent'`, and audit logging.
+  - Step 5: `fn_unlink_student_guardian` marking link `status = 'inactive'`, preserving academic records, atomically promoting the next active sibling to primary, and logging to `admin_action_audit`.
+  - Step 6: `fn_update_guardian_relationship` updating relationship metadata and atomic primary toggle with audit logging.
+  - Step 7: Enhanced `fn_get_profile_family_links` returning `class_name`, `section_name`, `login_id`, and `status`.
+- [x] **Edge Function Updated (`update_admin`)**:
+  - Handled `teacherAction`: `'enable'`, `'disable'`, `'update_staff'`.
+  - Mandatory adult `staffPersonName` (rejects with 400 if empty; never derives from student name).
+  - Handles Case A (removes teacher from `user_roles`), Case B (transitions primary role to `'parent'`), Case C (rejects if no other persona).
+  - Inactivates employee record on disable (`status = 'inactive'`).
+  - Audits `teacher_access_added`, `teacher_access_disabled`, `staff_details_changed`, `role_transition_to_parent`.
+- [x] **TypeScript Types Updated**:
+  - `src/integrations/supabase/types.ts`: added typing for `fn_search_students_for_family`, `fn_unlink_student_guardian`, `fn_update_guardian_relationship`.
+- [x] **UserManagement Drawer Redesigned (5 Cards)**:
+  - Account Card: Login identity, email, primary role, school assignment, additional roles (with raw teacher checkbox removed from generic roles).
+  - Family Access Card: Parent access status, linked children with Class, Section, Admission/Login ID, Relationship, Primary badge, actions (`Set as Primary`, `Edit Relationship`, `Unlink Child`), and `+ Link Existing Student`.
+  - Staff Access Card: Canonical adult educator identity (`Sunita Sharma — Teacher`), Designation, Department, Active status, `Edit Staff Details`, `Disable Teacher Access`, or `+ Add Teacher Access`.
+  - Staff Security Card: Staff PIN status (`Configured` / `Not Configured`), Teacher Access (`Active` / `Inactive`), Lockout status (`Normal` / `Rate-Limited (Locked)`), `Issue / Reset Staff PIN`. Never exposes raw PIN or faked device session unlock states.
+  - Account Actions Card: Status toggle (`Active` / `Disabled`), Password reset, Recovery email, Permanent Delete (guarded danger zone).
+- [x] **Dedicated Modals Implemented**:
+  - `UnlinkChildConfirmModal`: explicit warning that unlinking only removes family access while all academic records remain intact.
+  - `EditRelationshipModal`: allows editing relationship string and setting primary flag atomically.
+  - `LinkStudentModal`: search input calling `fn_search_students_for_family`, displaying candidates with current enrollment, relationship picker, and primary flag.
+  - `AddTeacherModal`: requires adult legal name, designation, department; calls `update_admin`.
+  - `DisableTeacherModal`: clear warning about losing access to gradebooks/attendance while preserving family/parent access; calls `update_admin`.
+  - `EditStaffDetailsModal`: edits designation and department without touching student identity; calls `update_admin`.
+- [x] **Build & Verification**:
+  - Clean `npm run build` compilation (0 errors, 10.51s, bundles generated).
+
 Create or extend User Management so Admin/Superadmin can clearly understand an account.
 
 An account detail view should conceptually show:

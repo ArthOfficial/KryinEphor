@@ -344,15 +344,151 @@ Deno.serve(async (req: Request) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // ADDITIONAL ROLES — sync user_roles rows other than the primary.
-        // Client sends the full desired set of additional roles.
-        // The primary role row is always kept (managed by DB trigger).
+        // TEACHER ACCESS & STAFF IDENTITY HANDLING (Phase 8)
+        // Single authoritative source of truth for Teacher mutations
         // ═══════════════════════════════════════════════════════════════
-        if (Array.isArray(additionalRoles)) {
-            const primary = (role || targetProfile.role) as string;
-            // Sanitize: whitelist, unique, drop primary, drop 'superadmin' unless caller is superadmin
+        const { teacherAction } = payload;
+        const effectiveSchool = schoolId !== undefined ? (schoolId || null) : targetProfile.school_id;
+
+        // Fetch existing roles & employee record for target user
+        const { data: existingUserRoles } = await supabaseAdmin
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', adminId);
+
+        const hadTeacherRole = targetProfile.role === 'teacher' || (existingUserRoles?.some(r => r.role === 'teacher') ?? false);
+
+        const { data: existingEmp } = effectiveSchool ? await supabaseAdmin
+            .from('employees')
+            .select('id, staff_person_name, designation, department, status')
+            .eq('profile_id', adminId)
+            .eq('school_id', effectiveSchool)
+            .is('deleted_at', null)
+            .maybeSingle() : { data: null };
+
+        let willHaveTeacher = false;
+        if (teacherAction === 'enable') {
+            willHaveTeacher = true;
+        } else if (teacherAction === 'disable') {
+            willHaveTeacher = false;
+        } else {
+            const requestedRole = role || targetProfile.role;
+            const requestedAddRoles = Array.isArray(additionalRoles) ? additionalRoles : (existingUserRoles?.map(r => r.role).filter(r => r !== targetProfile.role) || []);
+            willHaveTeacher = requestedRole === 'teacher' || requestedAddRoles.includes('teacher');
+        }
+
+        // Case 1: Enabling Teacher Access
+        if (willHaveTeacher && effectiveSchool) {
+            let staffName = typeof staffPersonName === 'string' ? staffPersonName.trim() : '';
+            if (!staffName && existingEmp?.staff_person_name) {
+                staffName = existingEmp.staff_person_name;
+            }
+
+            // CRITICAL: Reject if adult staff name is missing. NEVER default to student or account name.
+            if (!staffName) {
+                return new Response(JSON.stringify({
+                    error: 'Adult staff member name is required when enabling Teacher access. Cannot use student or account name.'
+                }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 400,
+                });
+            }
+
+            if (existingEmp) {
+                const empUpdate: Record<string, unknown> = {
+                    status: 'active',
+                    staff_person_name: staffName,
+                    updated_at: new Date().toISOString(),
+                };
+                if (designation !== undefined) empUpdate.designation = designation ? designation.trim() : 'Teacher';
+                if (department !== undefined) empUpdate.department = department ? department.trim() : null;
+
+                await supabaseAdmin
+                    .from('employees')
+                    .update(empUpdate)
+                    .eq('id', existingEmp.id);
+            } else {
+                await supabaseAdmin
+                    .from('employees')
+                    .insert({
+                        profile_id: adminId,
+                        school_id: effectiveSchool,
+                        staff_person_name: staffName,
+                        designation: designation ? designation.trim() : 'Teacher',
+                        department: department ? department.trim() : 'Academics',
+                        status: 'active',
+                    });
+            }
+        }
+
+        // Case 2: Disabling Teacher Access
+        let primaryRoleForcedChange = false;
+        if (hadTeacherRole && !willHaveTeacher && effectiveSchool) {
+            // Check if teacher is currently the primary role
+            const currentPrimaryRole = role || targetProfile.role;
+            if (currentPrimaryRole === 'teacher') {
+                // Check if account has active linked children in parent_student
+                const { data: activeChildren } = await supabaseAdmin
+                    .from('parent_student')
+                    .select('id')
+                    .eq('parent_id', adminId)
+                    .eq('school_id', effectiveSchool)
+                    .eq('status', 'active');
+
+                if (activeChildren && activeChildren.length > 0) {
+                    // Case B: Teacher was primary, but account has linked children -> switch primary to 'parent'
+                    profileData.role = 'parent';
+                    await supabaseAdmin
+                        .from('profiles')
+                        .update({ role: 'parent', updated_at: new Date().toISOString() })
+                        .eq('id', adminId);
+
+                    await supabaseAdmin.auth.admin.updateUserById(adminId, {
+                        app_metadata: { role: 'parent', school_id: effectiveSchool }
+                    });
+                    primaryRoleForcedChange = true;
+                } else {
+                    // Case C: Teacher was primary and there is NO other active persona -> REJECT
+                    return new Response(JSON.stringify({
+                        error: 'Cannot disable Teacher access: this account has no other active persona (e.g. parent or student). Please assign a replacement role or deactivate the account.'
+                    }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                        status: 400,
+                    });
+                }
+            }
+
+            // Case A / completion: Inactivate employee record (never delete historical data)
+            if (existingEmp) {
+                await supabaseAdmin
+                    .from('employees')
+                    .update({ status: 'inactive', updated_at: new Date().toISOString() })
+                    .eq('id', existingEmp.id);
+            }
+
+            // Remove teacher from user_roles
+            await supabaseAdmin
+                .from('user_roles')
+                .delete()
+                .eq('user_id', adminId)
+                .eq('role', 'teacher');
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ADDITIONAL ROLES — sync user_roles rows other than the primary.
+        // ═══════════════════════════════════════════════════════════════
+        if (Array.isArray(additionalRoles) || willHaveTeacher !== hadTeacherRole) {
+            const primary = (primaryRoleForcedChange ? 'parent' : (role || targetProfile.role)) as string;
+            let desiredAdditional = Array.isArray(additionalRoles) ? [...additionalRoles] : (existingUserRoles?.map(r => r.role).filter(r => r !== primary) || []);
+
+            if (willHaveTeacher && primary !== 'teacher' && !desiredAdditional.includes('teacher')) {
+                desiredAdditional.push('teacher');
+            } else if (!willHaveTeacher) {
+                desiredAdditional = desiredAdditional.filter(r => r !== 'teacher');
+            }
+
             const cleaned = Array.from(new Set(
-                additionalRoles
+                desiredAdditional
                     .filter((r: unknown): r is string => typeof r === 'string')
                     .map((r: string) => r.trim())
                     .filter((r: string) => VALID_ROLES.includes(r as typeof VALID_ROLES[number]))
@@ -360,7 +496,6 @@ Deno.serve(async (req: Request) => {
                     .filter((r: string) => callerProfile.role === 'superadmin' ? true : r !== 'superadmin')
             ));
 
-            // Delete additional roles no longer in the desired set (never delete primary).
             const keep = [primary, ...cleaned];
             await supabaseAdmin
                 .from('user_roles')
@@ -368,7 +503,6 @@ Deno.serve(async (req: Request) => {
                 .eq('user_id', adminId)
                 .not('role', 'in', `(${keep.map(r => `"${r}"`).join(',')})`);
 
-            // Insert missing additional roles.
             if (cleaned.length > 0) {
                 await supabaseAdmin
                     .from('user_roles')
@@ -376,59 +510,10 @@ Deno.serve(async (req: Request) => {
                         onConflict: 'user_id,role',
                         ignoreDuplicates: true,
                     });
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // STAFF IDENTITY (employees) — Keep Teacher identity canonical
-        // If the user has 'teacher' role, ensure active employees row
-        // with the adult staff name (distinct from student name).
-        // ═══════════════════════════════════════════════════════════════
-        const targetEffectiveRole = role || targetProfile.role;
-        const targetEffectiveRoles = [targetEffectiveRole, ...(Array.isArray(additionalRoles) ? additionalRoles : [])];
-        if (targetEffectiveRoles.includes('teacher')) {
-            const effectiveSchool = schoolId !== undefined ? (schoolId || null) : targetProfile.school_id;
-            if (effectiveSchool) {
-                const staffName = (typeof staffPersonName === 'string' && staffPersonName.trim())
-                    ? staffPersonName.trim()
-                    : (fullName || targetProfile.full_name || 'Teacher');
-
-                const { data: existingEmp } = await supabaseAdmin
-                    .from('employees')
-                    .select('id')
-                    .eq('profile_id', adminId)
-                    .eq('school_id', effectiveSchool)
-                    .is('deleted_at', null)
-                    .maybeSingle();
-
-                if (existingEmp) {
-                    const updatePayload: Record<string, unknown> = {
-                        status: 'active',
-                        staff_person_name: staffName,
-                    };
-                    if (designation) updatePayload.designation = designation;
-                    if (department) updatePayload.department = department;
-
-                    await supabaseAdmin
-                        .from('employees')
-                        .update(updatePayload)
-                        .eq('id', existingEmp.id);
-                } else {
-                    await supabaseAdmin
-                        .from('employees')
-                        .insert({
-                            profile_id: adminId,
-                            school_id: effectiveSchool,
-                            staff_person_name: staffName,
-                            designation: designation || 'Teacher',
-                            department: department || 'Academics',
-                            status: 'active',
-                        });
-                }
             }
         }
 
-
-        // ── Audit (item 12) — log sensitive admin actions ──────────
+        // ── Audit — log sensitive admin actions ──────────
         try {
             const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim()
                     || req.headers.get('cf-connecting-ip') || null;
@@ -436,10 +521,17 @@ Deno.serve(async (req: Request) => {
             if (password) actions.push('password_reset');
             if (email && email !== targetProfile.email) actions.push('email_change');
             if (role && role !== targetProfile.role) actions.push('role_change');
+            if (primaryRoleForcedChange) actions.push('role_transition_to_parent');
             if (typeof isActive === 'boolean' && isActive !== (targetProfile as { is_active?: boolean }).is_active) {
                 actions.push(isActive ? 'reactivate' : 'deactivate');
             }
             if (schoolId !== undefined && schoolId !== targetProfile.school_id) actions.push('school_change');
+            if (!hadTeacherRole && willHaveTeacher) actions.push('teacher_access_added');
+            if (hadTeacherRole && !willHaveTeacher) actions.push('teacher_access_disabled');
+            if (hadTeacherRole && willHaveTeacher && (staffPersonName || designation || department)) {
+                actions.push('staff_details_changed');
+            }
+
             if (actions.length > 0) {
                 await supabaseAdmin.from('admin_action_audit').insert({
                     actor_id: caller.id,
@@ -451,12 +543,15 @@ Deno.serve(async (req: Request) => {
                             email: targetProfile.email,
                             role: targetProfile.role,
                             school_id: targetProfile.school_id,
+                            had_teacher: hadTeacherRole,
                         },
                         next: {
                             email: email ?? undefined,
-                            role: role ?? undefined,
+                            role: primaryRoleForcedChange ? 'parent' : (role ?? undefined),
                             school_id: schoolId !== undefined ? (schoolId || null) : undefined,
                             is_active: typeof isActive === 'boolean' ? isActive : undefined,
+                            has_teacher: willHaveTeacher,
+                            staff_person_name: staffPersonName ?? existingEmp?.staff_person_name,
                         },
                     },
                     ip_address: ip,

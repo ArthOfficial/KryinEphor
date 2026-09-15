@@ -5327,6 +5327,37 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_search_students_for_family: {
+        Args: {
+          _school_id: string
+          _query?: string
+          _parent_id?: string | null
+        }
+        Returns: {
+          student_id: string
+          full_name: string
+          login_id: string | null
+          class_name: string | null
+          section_name: string | null
+          already_linked: boolean
+        }[]
+      }
+      fn_unlink_student_guardian: {
+        Args: {
+          _school_id: string
+          _link_id: string
+        }
+        Returns: Json
+      }
+      fn_update_guardian_relationship: {
+        Args: {
+          _school_id: string
+          _link_id: string
+          _relationship: string
+          _is_primary?: boolean | null
+        }
+        Returns: Json
+      }
       fn_get_my_persona_summary: {
         Args: never
         Returns: Json
