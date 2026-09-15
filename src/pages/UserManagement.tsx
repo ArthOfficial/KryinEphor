@@ -515,18 +515,109 @@ const AddTeacherModal: React.FC<{
     );
 };
 
-/* 5. Disable Teacher Access Modal */
+interface ActiveTeacherAssignments {
+    has_active_assignments: boolean;
+    total_count: number;
+    classes: {
+        class_id: string;
+        name: string;
+        section: string | null;
+        grade_level: string | null;
+        room_number: string | null;
+    }[];
+    subjects: {
+        subject_id: string;
+        name: string;
+        code: string | null;
+        class_id: string | null;
+        class_name: string | null;
+        class_section: string | null;
+    }[];
+    subject_teachers: {
+        id: string;
+        subject_id: string;
+        subject_name: string;
+        class_id: string;
+        class_name: string;
+        class_section: string | null;
+        is_primary: boolean;
+    }[];
+    timetable: {
+        id: string;
+        day_of_week: number;
+        start_time: string;
+        end_time: string;
+        room: string | null;
+        class_name: string;
+        class_section: string | null;
+        subject_name: string;
+    }[];
+    online_classes: {
+        id: string;
+        title: string;
+        scheduled_at: string;
+        duration_minutes: number | null;
+        platform: string | null;
+        status: string;
+        class_name: string;
+        subject_name: string | null;
+    }[];
+}
+
+/* 5. Disable Teacher Access Modal (Phase 9 - Active Assignments & History Preservation) */
 const DisableTeacherModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     staffName: string;
-    onConfirm: () => Promise<void>;
+    teacherProfileId: string;
+    schoolId: string;
+    onConfirm: (clearAssignments: boolean) => Promise<void>;
     busy: boolean;
-}> = ({ isOpen, onClose, staffName, onConfirm, busy }) => {
+}> = ({ isOpen, onClose, staffName, teacherProfileId, schoolId, onConfirm, busy }) => {
+    const [loadingAssignments, setLoadingAssignments] = useState(false);
+    const [assignments, setAssignments] = useState<ActiveTeacherAssignments | null>(null);
+    const [clearAssignmentsChecked, setClearAssignmentsChecked] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen || !teacherProfileId || !schoolId) {
+            setAssignments(null);
+            setClearAssignmentsChecked(false);
+            return;
+        }
+
+        let isMounted = true;
+        setLoadingAssignments(true);
+
+        const fetchAssignments = async () => {
+            try {
+                const { data, error } = await supabase.rpc('fn_get_teacher_active_assignments', {
+                    _school_id: schoolId,
+                    _teacher_profile_id: teacherProfileId,
+                });
+                if (error) throw error;
+                if (isMounted) {
+                    setAssignments(data as unknown as ActiveTeacherAssignments);
+                }
+            } catch (err) {
+                console.error('Failed to fetch active teacher assignments:', err);
+            } finally {
+                if (isMounted) setLoadingAssignments(false);
+            }
+        };
+
+        fetchAssignments();
+        return () => {
+            isMounted = false;
+        };
+    }, [isOpen, teacherProfileId, schoolId]);
+
     if (!isOpen) return null;
+
+    const hasActiveAssignments = assignments?.has_active_assignments ?? false;
+
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-100 space-y-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-rose-100 space-y-4 my-8">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
                         <Lock className="w-5 h-5" />
@@ -540,13 +631,115 @@ const DisableTeacherModal: React.FC<{
                 <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-1.5 leading-relaxed">
                     <div className="flex items-center gap-1.5 font-bold">
                         <AlertTriangle className="w-4 h-4 text-amber-600" />
-                        <span>Family Access & History Are Preserved</span>
+                        <span>Family Access & Academic History Remain Preserved</span>
                     </div>
                     <p>
-                        Disabling Teacher access will inactivate active educator privileges.
-                        Family login credentials, parent access, linked children, student records, and historical teacher attributions will remain intact.
+                        Disabling Teacher access will inactivate educator privileges and immediately revoke active staff unlock sessions.
+                        Family login credentials, Parent view, linked children, student records, and historical teacher attribution (marks entered, attendance taken) will remain 100% intact.
                     </p>
                 </div>
+
+                {loadingAssignments ? (
+                    <div className="p-6 text-center text-xs text-muted bg-stone-50 rounded-xl border border-stone-200 space-y-2">
+                        <RefreshCw className="w-4 h-4 animate-spin mx-auto text-stone-400" />
+                        <p>Checking active teaching assignments…</p>
+                    </div>
+                ) : hasActiveAssignments ? (
+                    <div className="space-y-3">
+                        <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                    Active Assignments Found ({assignments?.total_count})
+                                </span>
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-200/80 text-rose-800">
+                                    Action Required
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-rose-900 leading-relaxed">
+                                This staff member currently holds operational assignments. To avoid contradictory states, you must either reassign them first in Class Management or authorize clearing and archiving them now.
+                            </p>
+
+                            <div className="max-h-40 overflow-y-auto space-y-1.5 pt-1 pr-1">
+                                {assignments?.classes && assignments.classes.length > 0 && (
+                                    <div className="bg-white/80 p-2 rounded-lg border border-rose-100 text-[11px] space-y-1">
+                                        <p className="font-semibold text-stone-700">Class Teacher:</p>
+                                        {assignments.classes.map(c => (
+                                            <p key={c.class_id} className="text-stone-600 pl-2">
+                                                • Class {c.name}{c.section ? `-${c.section}` : ''} {c.room_number ? `(Room: ${c.room_number})` : ''}
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
+                                {assignments?.subjects && assignments.subjects.length > 0 && (
+                                    <div className="bg-white/80 p-2 rounded-lg border border-rose-100 text-[11px] space-y-1">
+                                        <p className="font-semibold text-stone-700">Subjects Taught:</p>
+                                        {assignments.subjects.map(s => (
+                                            <p key={s.subject_id} className="text-stone-600 pl-2">
+                                                • {s.name} {s.class_name ? `(${s.class_name})` : ''} {s.code ? `[${s.code}]` : ''}
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
+                                {assignments?.subject_teachers && assignments.subject_teachers.length > 0 && (
+                                    <div className="bg-white/80 p-2 rounded-lg border border-rose-100 text-[11px] space-y-1">
+                                        <p className="font-semibold text-stone-700">Subject-Class Allocations:</p>
+                                        {assignments.subject_teachers.map(st => (
+                                            <p key={st.id} className="text-stone-600 pl-2">
+                                                • {st.subject_name} ({st.class_name}{st.class_section ? `-${st.class_section}` : ''})
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
+                                {assignments?.timetable && assignments.timetable.length > 0 && (
+                                    <div className="bg-white/80 p-2 rounded-lg border border-rose-100 text-[11px] space-y-1">
+                                        <p className="font-semibold text-stone-700">Timetable Slots ({assignments.timetable.length}):</p>
+                                        {assignments.timetable.slice(0, 3).map(tt => (
+                                            <p key={tt.id} className="text-stone-600 pl-2">
+                                                • Day {tt.day_of_week} ({tt.start_time}-{tt.end_time}): {tt.subject_name}
+                                            </p>
+                                        ))}
+                                        {assignments.timetable.length > 3 && (
+                                            <p className="text-stone-400 pl-2 text-[10px]">
+                                                + {assignments.timetable.length - 3} more timetable entries
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                                {assignments?.online_classes && assignments.online_classes.length > 0 && (
+                                    <div className="bg-white/80 p-2 rounded-lg border border-rose-100 text-[11px] space-y-1">
+                                        <p className="font-semibold text-stone-700">Scheduled Online Sessions:</p>
+                                        {assignments.online_classes.map(oc => (
+                                            <p key={oc.id} className="text-stone-600 pl-2">
+                                                • {oc.title} ({new Date(oc.scheduled_at).toLocaleDateString()})
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <label className="flex items-start gap-2.5 p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs font-semibold text-stone-800 cursor-pointer hover:bg-stone-100 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={clearAssignmentsChecked}
+                                onChange={e => setClearAssignmentsChecked(e.target.checked)}
+                                className="mt-0.5 w-4 h-4 accent-rose-600 rounded"
+                            />
+                            <div className="space-y-0.5">
+                                <span>Clear current assignments and archive to assignment history as part of Teacher removal</span>
+                                <p className="text-[10px] font-normal text-muted">
+                                    Current operational classes and timetable slots will await new teacher assignment in Class Management. Assignment history is permanently archived.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+                ) : (
+                    <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 flex items-center gap-2 text-xs text-stone-600">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>No active class or subject teaching assignments found for this staff member.</span>
+                    </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-2">
                     <button
@@ -555,13 +748,13 @@ const DisableTeacherModal: React.FC<{
                         disabled={busy}
                         className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
                     >
-                        Cancel
+                        {hasActiveAssignments ? 'Cancel & Reassign Manually' : 'Cancel'}
                     </button>
                     <button
                         type="button"
-                        onClick={onConfirm}
-                        disabled={busy}
-                        className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                        onClick={() => onConfirm(clearAssignmentsChecked)}
+                        disabled={busy || (hasActiveAssignments && !clearAssignmentsChecked)}
+                        className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-sm"
                     >
                         {busy ? 'Disabling…' : 'Disable Teacher Access'}
                     </button>
@@ -667,6 +860,7 @@ const UserDrawer: React.FC<{
     onSaved: () => void;
 }> = ({ user, isOpen, onClose, schools, onSaved }) => {
     const { role: currentRole, user: currentUser } = useAuth();
+    const queryClient = useQueryClient();
     const isSuperadmin = currentRole === 'superadmin';
     const canManageUsers = currentRole === 'superadmin' || currentRole === 'admin';
     const canEditName = !!user && (canManageUsers || currentUser?.id === user.id);
@@ -1057,7 +1251,7 @@ const UserDrawer: React.FC<{
     };
 
     // Handle Disable Teacher Access (single authoritative update_admin pathway)
-    const handleDisableTeacherAccess = async () => {
+    const handleDisableTeacherAccess = async (clearAssignments: boolean = false) => {
         if (!user) return;
         const targetSchool = editSchool || user.school_id;
         if (!targetSchool) return;
@@ -1068,17 +1262,23 @@ const UserDrawer: React.FC<{
                 adminId: user.id,
                 schoolId: targetSchool,
                 teacherAction: 'disable',
+                clearAssignments,
             };
             const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
             if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to disable Teacher access'));
             if (fnData?.error) throw new Error(fnData.error);
 
-            toast.success('Teacher access disabled. Family and student access remain intact.');
+            toast.success('Teacher access disabled. Operational assignments handled, unlock sessions revoked, and family access preserved.');
             setDisableTeacherModalOpen(false);
             setAdditionalRoles(prev => prev.filter(r => r !== 'teacher'));
             if (editRole === 'teacher') {
                 setEditRole('parent');
             }
+            if (targetSchool) {
+                queryClient.invalidateQueries({ queryKey: qk.teachers.bySchool(targetSchool) });
+            }
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
+            queryClient.invalidateQueries({ queryKey: ['persona-summary'] });
             onSaved();
         } catch (err: unknown) {
             toast.error(err instanceof Error ? err.message : 'Failed to disable Teacher access');
@@ -1868,6 +2068,8 @@ const UserDrawer: React.FC<{
                         isOpen={disableTeacherModalOpen}
                         onClose={() => setDisableTeacherModalOpen(false)}
                         staffName={editStaffPersonName || user.full_name || 'Staff Member'}
+                        teacherProfileId={user.id}
+                        schoolId={editSchool || user.school_id || ''}
                         onConfirm={handleDisableTeacherAccess}
                         busy={disablingTeacherBusy}
                     />

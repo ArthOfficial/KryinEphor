@@ -4360,6 +4360,60 @@ export type Database = {
           },
         ]
       }
+      teacher_assignment_history: {
+        Row: {
+          id: string
+          school_id: string
+          teacher_id: string | null
+          teacher_name_at_time: string | null
+          employee_id_at_time: string | null
+          designation_at_time: string | null
+          assignment_type: string
+          class_id: string | null
+          subject_id: string | null
+          source_assignment_id: string | null
+          assigned_at: string | null
+          ended_at: string
+          ended_reason: string
+          metadata: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          school_id: string
+          teacher_id?: string | null
+          teacher_name_at_time?: string | null
+          employee_id_at_time?: string | null
+          designation_at_time?: string | null
+          assignment_type: string
+          class_id?: string | null
+          subject_id?: string | null
+          source_assignment_id?: string | null
+          assigned_at?: string | null
+          ended_at?: string
+          ended_reason?: string
+          metadata?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          school_id?: string
+          teacher_id?: string | null
+          teacher_name_at_time?: string | null
+          employee_id_at_time?: string | null
+          designation_at_time?: string | null
+          assignment_type?: string
+          class_id?: string | null
+          subject_id?: string | null
+          source_assignment_id?: string | null
+          assigned_at?: string | null
+          ended_at?: string
+          ended_reason?: string
+          metadata?: Json | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       subscription_events: {
         Row: {
           actor_id: string | null
@@ -5357,6 +5411,60 @@ export type Database = {
           _is_primary?: boolean | null
         }
         Returns: Json
+      }
+      fn_get_teacher_active_assignments: {
+        Args: {
+          _school_id: string
+          _teacher_profile_id: string
+        }
+        Returns: {
+          has_active_assignments: boolean
+          total_count: number
+          classes: {
+            class_id: string
+            name: string
+            section: string | null
+            grade_level: string | null
+            room_number: string | null
+          }[]
+          subjects: {
+            subject_id: string
+            name: string
+            code: string | null
+            class_id: string | null
+            class_name: string | null
+            class_section: string | null
+          }[]
+          subject_teachers: {
+            id: string
+            subject_id: string
+            subject_name: string
+            class_id: string
+            class_name: string
+            class_section: string | null
+            is_primary: boolean
+          }[]
+          timetable: {
+            id: string
+            day_of_week: number
+            start_time: string
+            end_time: string
+            room: string | null
+            class_name: string
+            class_section: string | null
+            subject_name: string
+          }[]
+          online_classes: {
+            id: string
+            title: string
+            scheduled_at: string
+            duration_minutes: number | null
+            platform: string | null
+            status: string
+            class_name: string
+            subject_name: string | null
+          }[]
+        }
       }
       fn_get_my_persona_summary: {
         Args: never

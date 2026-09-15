@@ -344,24 +344,26 @@ Deno.serve(async (req: Request) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // TEACHER ACCESS & STAFF IDENTITY HANDLING (Phase 8)
+        // TEACHER ACCESS & STAFF IDENTITY HANDLING (Phase 8 & 9)
         // Single authoritative source of truth for Teacher mutations
         // ═══════════════════════════════════════════════════════════════
         const { teacherAction } = payload;
         const effectiveSchool = schoolId !== undefined ? (schoolId || null) : targetProfile.school_id;
+        const targetUserId = adminId;
+        const actorUserId = caller.id;
 
         // Fetch existing roles & employee record for target user
         const { data: existingUserRoles } = await supabaseAdmin
             .from('user_roles')
             .select('role')
-            .eq('user_id', adminId);
+            .eq('user_id', targetUserId);
 
         const hadTeacherRole = targetProfile.role === 'teacher' || (existingUserRoles?.some(r => r.role === 'teacher') ?? false);
 
         const { data: existingEmp } = effectiveSchool ? await supabaseAdmin
             .from('employees')
             .select('id, staff_person_name, designation, department, status')
-            .eq('profile_id', adminId)
+            .eq('profile_id', targetUserId)
             .eq('school_id', effectiveSchool)
             .is('deleted_at', null)
             .maybeSingle() : { data: null };
@@ -411,7 +413,7 @@ Deno.serve(async (req: Request) => {
                 await supabaseAdmin
                     .from('employees')
                     .insert({
-                        profile_id: adminId,
+                        profile_id: targetUserId,
                         school_id: effectiveSchool,
                         staff_person_name: staffName,
                         designation: designation ? designation.trim() : 'Teacher',
@@ -421,57 +423,39 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        // Case 2: Disabling Teacher Access
+        // Case 2: Disabling Teacher Access (Atomic Database State Transition)
         let primaryRoleForcedChange = false;
         if (hadTeacherRole && !willHaveTeacher && effectiveSchool) {
-            // Check if teacher is currently the primary role
-            const currentPrimaryRole = role || targetProfile.role;
-            if (currentPrimaryRole === 'teacher') {
-                // Check if account has active linked children in parent_student
-                const { data: activeChildren } = await supabaseAdmin
-                    .from('parent_student')
-                    .select('id')
-                    .eq('parent_id', adminId)
-                    .eq('school_id', effectiveSchool)
-                    .eq('status', 'active');
+            const { data: disableResult, error: disableRpcError } = await supabaseAdmin.rpc(
+                'fn_disable_teacher_access_internal',
+                {
+                    _school_id: effectiveSchool,
+                    _target_profile_id: targetUserId,
+                    _actor_profile_id: actorUserId,
+                    _clear_assignments: Boolean(payload.clearAssignments),
+                }
+            );
 
-                if (activeChildren && activeChildren.length > 0) {
-                    // Case B: Teacher was primary, but account has linked children -> switch primary to 'parent'
-                    profileData.role = 'parent';
-                    await supabaseAdmin
-                        .from('profiles')
-                        .update({ role: 'parent', updated_at: new Date().toISOString() })
-                        .eq('id', adminId);
+            if (disableRpcError) {
+                return new Response(JSON.stringify({ error: disableRpcError.message }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 400,
+                });
+            }
 
-                    await supabaseAdmin.auth.admin.updateUserById(adminId, {
+            // Decoupled Auth app_metadata synchronization:
+            // The DB transaction has committed and teacher access is revoked.
+            // If auth metadata sync fails, teacher STILL remains disabled in the authoritative DB.
+            if (disableResult?.primary_role_changed && disableResult?.new_primary_role === 'parent') {
+                primaryRoleForcedChange = true;
+                try {
+                    await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
                         app_metadata: { role: 'parent', school_id: effectiveSchool }
                     });
-                    primaryRoleForcedChange = true;
-                } else {
-                    // Case C: Teacher was primary and there is NO other active persona -> REJECT
-                    return new Response(JSON.stringify({
-                        error: 'Cannot disable Teacher access: this account has no other active persona (e.g. parent or student). Please assign a replacement role or deactivate the account.'
-                    }), {
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                        status: 400,
-                    });
+                } catch (authErr) {
+                    console.warn('Auth app_metadata sync warning (DB state remains authoritative):', authErr);
                 }
             }
-
-            // Case A / completion: Inactivate employee record (never delete historical data)
-            if (existingEmp) {
-                await supabaseAdmin
-                    .from('employees')
-                    .update({ status: 'inactive', updated_at: new Date().toISOString() })
-                    .eq('id', existingEmp.id);
-            }
-
-            // Remove teacher from user_roles
-            await supabaseAdmin
-                .from('user_roles')
-                .delete()
-                .eq('user_id', adminId)
-                .eq('role', 'teacher');
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -500,13 +484,13 @@ Deno.serve(async (req: Request) => {
             await supabaseAdmin
                 .from('user_roles')
                 .delete()
-                .eq('user_id', adminId)
+                .eq('user_id', targetUserId)
                 .not('role', 'in', `(${keep.map(r => `"${r}"`).join(',')})`);
 
             if (cleaned.length > 0) {
                 await supabaseAdmin
                     .from('user_roles')
-                    .upsert(cleaned.map((r: string) => ({ user_id: adminId, role: r })), {
+                    .upsert(cleaned.map((r: string) => ({ user_id: targetUserId, role: r })), {
                         onConflict: 'user_id,role',
                         ignoreDuplicates: true,
                     });
@@ -534,9 +518,9 @@ Deno.serve(async (req: Request) => {
 
             if (actions.length > 0) {
                 await supabaseAdmin.from('admin_action_audit').insert({
-                    actor_id: caller.id,
+                    actor_id: actorUserId,
                     actor_role: callerProfile.role,
-                    target_user_id: adminId,
+                    target_user_id: targetUserId,
                     action: actions.join(','),
                     detail: {
                         previous: {

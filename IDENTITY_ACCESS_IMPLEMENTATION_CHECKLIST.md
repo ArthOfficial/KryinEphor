@@ -1412,6 +1412,37 @@ Superadmin must not accidentally bypass relational validation merely because the
 
 # PHASE 9 — REMOVE TEACHER ACCESS
 
+**Status**: ✅ Completed
+
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: Created `supabase/migrations/20260915040000_phase9_remove_teacher_access.sql`.
+  - Dynamic check constraint validation on `employees.status` ensuring `'inactive'` is supported while preserving all existing allowed statuses (`active`, `inactive`, `resigned`, `terminated`, `on_leave`, `retired`).
+  - Hardened central authorization helper `public.has_role(_user_id, _role)`: for `_role = 'teacher'`, strictly mandates active teacher role AND active, non-deleted staff membership (`employees.status = 'active'`). Immediate server-side denial for stale browser JWTs upon deactivation.
+  - Created `public.teacher_assignment_history` table with `teacher_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL`, `teacher_name_at_time`, `employee_id_at_time`, `designation_at_time`, original `assigned_at` timestamp preservation, `ended_at = now()`, `ended_reason = 'teacher_access_disabled'`, and full operational metadata.
+  - Active assignment discovery RPC `public.fn_get_teacher_active_assignments(_school_id, _teacher_profile_id)` inspecting all 5 operational teaching areas: `classes`, `subjects`, `subject_teachers`, `timetable`, and active/future/live `online_classes`.
+  - Locked-down internal atomic RPC `public.fn_disable_teacher_access_internal(_school_id, _target_profile_id, _actor_profile_id, _clear_assignments)`:
+    - Executed exclusively by `service_role` and `postgres` (revoked from `PUBLIC`, `anon`, `authenticated`).
+    - Enforces that active assignments cannot be left attached in an inactive state (fails atomically if assignments exist and clear flag is false).
+    - Snapshots assignments into `teacher_assignment_history` with full textual identity before clearing current operational foreign keys.
+    - Revokes active sessions in `staff_unlock_sessions` for `_target_profile_id` immediately.
+    - Sets `employees.status = 'inactive'`.
+    - Deletes teacher role from `user_roles`.
+    - Handles primary role transition (Case B: transitions to `'parent'` if active children exist; Case C: rejects if no other persona exists).
+    - Writes structured audit log to `admin_action_audit`.
+- [x] **Edge Function Hardened (`update_admin`)**:
+  - Explicit target vs. actor aliasing: `targetUserId = adminId; actorUserId = caller.id;`.
+  - Calls `fn_disable_teacher_access_internal` inside the service-role admin client.
+  - Decoupled Auth metadata synchronization: attempted after PostgreSQL transaction commits; failure to sync `app_metadata` logs a warning without rolling back the authoritative database state.
+- [x] **TypeScript Types Updated**:
+  - Added types for `teacher_assignment_history` table and `fn_get_teacher_active_assignments` RPC in `src/integrations/supabase/types.ts`.
+- [x] **Frontend UI Refactored in UserManagement**:
+  - Enhanced `DisableTeacherModal`: invokes `fn_get_teacher_active_assignments` on open, displays breakdown of active classes, subjects, subject allocations, timetable slots, and scheduled online sessions.
+  - Enforces safe paths: either `Cancel & Reassign Manually` or checkbox `[x] Clear current assignments and archive to assignment history as part of Teacher removal` before the `Disable Teacher Access` button is enabled.
+  - Zero historical destruction: prominent notice that past marks, attendance, and exam entries remain preserved under the educator's name.
+  - Invalidates `['teachers', 'bySchool']`, `['user-management-bundle']`, and `['persona-summary']` query caches.
+- [x] **Build & Verification**:
+  - `npm run build` ran and succeeded cleanly (0 errors, 5.63s).
+
 Example:
 
 ```text
