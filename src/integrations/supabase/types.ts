@@ -3444,6 +3444,7 @@ export type Database = {
           recovery_email_verified: boolean
           role: string
           school_id: string | null
+          student_status: string | null
           updated_at: string | null
         }
         Insert: {
@@ -3466,6 +3467,7 @@ export type Database = {
           recovery_email_verified?: boolean
           role: string
           school_id?: string | null
+          student_status?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -3488,6 +3490,7 @@ export type Database = {
           recovery_email_verified?: boolean
           role?: string
           school_id?: string | null
+          student_status?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -5421,6 +5424,23 @@ export type Database = {
           _link_id: string
           _relationship: string
           _is_primary?: boolean | null
+        }
+        Returns: Json
+      }
+      fn_set_student_status: {
+        Args: {
+          _school_id: string
+          _student_id: string
+          _new_status: string
+          _reason?: string | null
+          _notes?: string | null
+        }
+        Returns: Json
+      }
+      fn_check_student_delete_eligibility: {
+        Args: {
+          _school_id: string
+          _student_id: string
         }
         Returns: Json
       }

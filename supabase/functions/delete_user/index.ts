@@ -108,12 +108,49 @@ Deno.serve(async (req: Request) => {
         if (confirmText !== expected)
             return json({ error: "Confirmation text does not match." }, 400);
 
+        // If target is a student, guard against deleting active academic/financial records
+        if (target.role === "student" && target.school_id) {
+            const { data: eligibility, error: eligErr } = await admin.rpc(
+                "fn_check_student_delete_eligibility",
+                {
+                    _school_id: target.school_id,
+                    _student_id: targetUserId,
+                },
+            );
+            if (eligErr) {
+                return json({ error: `Failed to verify student deletion eligibility: ${eligErr.message}` }, 500);
+            }
+            if (eligibility && !eligibility.can_delete) {
+                const reasonsList = (eligibility.reasons as string[] || []).join(", ");
+                return json({
+                    error: `Permanent deletion blocked: student has active records (${reasonsList}). To protect academic history, hard deletion is refused. Please mark the student as Withdrawn, Transferred, or Inactive instead.`,
+                    eligibility,
+                }, 400);
+            }
+        }
+
         // Hard delete from auth (profile + related rows cascade via FKs)
         const { error: delErr } = await admin.auth.admin.deleteUser(targetUserId);
         if (delErr) return json({ error: `Delete failed: ${delErr.message}` }, 400);
 
         // Best-effort: also delete profile row if it lingered without cascade
         await admin.from("profiles").delete().eq("id", targetUserId);
+
+        // Canonical audit log
+        await admin.from("admin_action_audit").insert({
+            actor_id: caller.id,
+            actor_role: callerProfile.role,
+            school_id: target.school_id,
+            target_user_id: targetUserId,
+            action: target.role === "student" ? "student_hard_deleted" : "user_hard_deleted",
+            detail: {
+                target_name: target.full_name,
+                target_email: target.email,
+                target_role: target.role,
+                school_id: target.school_id,
+            },
+            created_at: new Date().toISOString(),
+        });
 
         return json({ success: true, deletedUserId: targetUserId }, 200);
     } catch (e: unknown) {

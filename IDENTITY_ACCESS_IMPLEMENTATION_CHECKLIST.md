@@ -1551,109 +1551,70 @@ with no Teacher mode.
 
 # PHASE 10 — REMOVE OR UNLINK A CHILD
 
-Clearly distinguish THREE operations:
+**Status**: ✅ Completed
 
-## A. Unlink Child From Family Account
+### Clearly Distinguish THREE Operations:
 
+#### A. Unlink Child From Family Account
 Meaning:
-
 > This family account should no longer be able to access this student.
 
 Do:
-
 ```text
-
 guardian/family link → inactive/removed
-
 ```
+- **DO NOT delete student academic data**: Student stays enrolled, marks remain, attendance remains, fees remain. Only family access is removed.
+- **Implementation**: Fixed `public.fn_unlink_student_guardian(_school_id, _link_id)`.
+  - Corrected `admin_action_audit` insert: omits `id` (bigint identity column), uses `detail` column (not legacy `details`), and resolves `actor_role = v_caller_role`.
+  - Sets `parent_student.status = 'inactive'` and `is_primary = false`.
+  - Atomically promotes the next active sibling to primary if the unlinked child was primary.
+  - Leaves student profile, enrollment, attendance, exam marks, and fee invoices 100% untouched.
 
-DO NOT delete student academic data.
-
-Student stays enrolled.
-
-Marks remain.
-
-Attendance remains.
-
-Fees remain.
-
-Only family access is removed.
-
----
-
-## B. Student Leaves School
-
-Use statuses such as:
-
+#### B. Student Leaves School
+Statuses supported:
 ```text
-
 withdrawn
-
 transferred
-
 graduated
-
 inactive
-
 ```
+- **Preserve history**: Never hard-delete academic history when a student leaves.
+- **Implementation**:
+  - Added `student_status TEXT DEFAULT 'active' CHECK (student_status IN ('active', 'withdrawn', 'transferred', 'graduated', 'inactive'))` to `public.profiles`.
+  - Created RPC `public.fn_set_student_status(_school_id, _student_id, _new_status, _reason, _notes)`.
+  - Automatically toggles `profiles.is_active = (_new_status = 'active')` so departed students cannot log in.
+  - Stores `departure_info` (`status`, `reason`, `notes`, `updated_at`, `updated_by`) in `profiles.metadata`.
+  - Logs `student_status_changed` event in `admin_action_audit`.
+  - Added **Student Enrollment Status** management card in `UserDrawer` UI in `UserManagement.tsx`.
 
-according to existing architecture.
+#### C. Mistaken/Duplicate Student Record
+Hard delete is exceptional and strictly guarded:
+- **Dependency Verifications**: Verifies 0 records exist across:
+  - attendance (`deleted_at IS NULL`)
+  - exam results / marks (`deleted_at IS NULL`)
+  - invoices (`deleted_at IS NULL`)
+  - transactions / payments
+  - class enrollments (`deleted_at IS NULL`)
+  - homework submissions
+  - student fee assignments (`is_active = true`)
+  - active family guardians (`status = 'active'`)
+- **Implementation**:
+  - Created RPC `public.fn_check_student_delete_eligibility(_school_id, _student_id)`.
+  - Hardened Edge Function `supabase/functions/delete_user/index.ts`: when target user is a student, checks deletion eligibility and rejects hard deletion with HTTP 400 if any academic/financial records exist.
+  - Audits all permanent user deletions in `admin_action_audit` (`student_hard_deleted` / `user_hard_deleted`).
+  - Frontend `DeleteUserConfirmModal` dynamically queries `fn_check_student_delete_eligibility` on open for students. If records exist, blocks the deletion UI, displays a dependency breakdown alert, and offers **"Archive Student Instead"** (redirects to status transition).
 
-Preserve history.
-
-Do not hard-delete academic history.
-
-Family may retain limited historical access according to product policy, or lose active access after withdrawal. Implement whichever current Kryin Ephor policy is most consistent, but keep the data.
-
----
-
-## C. Mistaken/Duplicate Student Record
-
-Hard delete should be exceptional.
-
-Only allow if safe.
-
-Before deletion verify:
-
-* no attendance
-
-* no marks
-
-* no invoices
-
-* no payments
-
-* no exams/results
-
-* no important messages
-
-* no required audit history
-
-* no dependent academic records
-
-If meaningful history exists, refuse destructive deletion and require archive/merge/manual remediation instead.
-
-Use confirmation UI.
-
-Prefer:
-
-```text
-
-Archive
-
-```
-
-over:
-
-```text
-
-Delete
-
-```
-
-for real students.
-
-All destructive actions must be audited.
+### Implemented & Verified Tasks:
+- [x] **Additive Migration**: `supabase/migrations/20260915042000_phase10_student_unlink_and_departure.sql` applied and recorded in remote DB `schema_migrations`.
+- [x] **Audit Insertion Bug Fixed**: Corrected `fn_unlink_student_guardian` to use `detail` column, proper `actor_role`, and omit identity column `id`.
+- [x] **Departure Status System**: Added `student_status` column and `fn_set_student_status` RPC with full audit tracking.
+- [x] **Guarded Deletion RPC & Edge Function**: Created `fn_check_student_delete_eligibility` and integrated server-side guards into `delete_user` Edge Function.
+- [x] **Frontend UI & Type Definitions**:
+  - Added `student_status` to `types.ts`, `UMProfile`, and `User` interface.
+  - Added Student Enrollment Status card to `UserDrawer`.
+  - Added Guarded Deletion protection to `DeleteUserConfirmModal`.
+- [x] **Remote DB Automated Test Suite**: Verified Operation A (unlink child + sibling promotion), Operation B (student status transition + metadata), and Operation C (blocking deletion with history, permitting clean duplicate delete) on live database.
+- [x] **Build Verification**: `npm run build` passes with 0 errors.
 
 ---
 

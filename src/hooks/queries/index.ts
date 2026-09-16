@@ -179,6 +179,7 @@ export interface UMProfile {
     is_active: boolean; metadata: unknown; updated_at: string; email: string;
     avatar_url: string | null; recovery_email: string | null; recovery_email_verified: boolean | null;
     roles?: string[];
+    student_status?: string | null;
 }
 export interface UMSchool { id: string; name: string; email_domain: string | null; combined_parent_student_account: boolean; }
 export interface UMPermission { id: string; [k: string]: unknown; }
@@ -188,7 +189,7 @@ export function useUserManagementData() {
         queryKey: qk.userManagement,
         queryFn: async () => {
             const [profilesRes, schoolsRes, permsRes, userRolesRes] = await Promise.all([
-                supabase.from('profiles').select('id,full_name,role,school_id,is_active,metadata,updated_at,email,avatar_url,recovery_email,recovery_email_verified'),
+                supabase.from('profiles').select('id,full_name,role,school_id,is_active,metadata,updated_at,email,avatar_url,recovery_email,recovery_email_verified,student_status'),
                 supabase.from('schools').select('id, name, email_domain, combined_parent_student_account').is('deleted_at', null),
                 supabase.from('permissions').select('*'),
                 supabase.from('user_roles').select('user_id, role'),

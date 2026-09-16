@@ -52,6 +52,7 @@ interface User {
     school_name: string | null;
     status: string;
     is_active: boolean;
+    student_status?: string | null;
     metadata: { permissions?: unknown[] } | null;
     updated_at: string;
     email: string;
@@ -940,6 +941,12 @@ const UserDrawer: React.FC<{
     const [tempPinValue, setTempPinValue] = useState('');
     const [resettingPin, setResettingPin] = useState(false);
 
+    // Student Status & Departure (Phase 10)
+    const [studentStatus, setStudentStatus] = useState('active');
+    const [studentDepartureReason, setStudentDepartureReason] = useState('');
+    const [studentDepartureNotes, setStudentDepartureNotes] = useState('');
+    const [updatingStudentStatus, setUpdatingStudentStatus] = useState(false);
+
     const hasTeacherAccess = editRole === 'teacher' || additionalRoles.includes('teacher');
 
     const fetchStaffPinStatus = async (schoolId: string, userId: string) => {
@@ -1028,6 +1035,10 @@ const UserDrawer: React.FC<{
             setEditStaffPersonName('');
             setEditDesignation('');
             setEditDepartment('');
+
+            setStudentStatus(user.student_status || (user.is_active ? 'active' : 'inactive'));
+            setStudentDepartureReason('');
+            setStudentDepartureNotes('');
 
             fetchFamilyLinks(user.id);
 
@@ -1146,6 +1157,33 @@ const UserDrawer: React.FC<{
             toast.error(msg);
         } finally {
             setUpdatingRelBusy(false);
+        }
+    };
+
+    // Handle Update Student Status (Phase 10)
+    const handleUpdateStudentStatus = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setUpdatingStudentStatus(true);
+        try {
+            const { error } = await supabase.rpc('fn_set_student_status', {
+                _school_id: targetSchool,
+                _student_id: user.id,
+                _new_status: studentStatus,
+                _reason: studentDepartureReason || null,
+                _notes: studentDepartureNotes || null,
+            });
+            if (error) throw error;
+
+            toast.success(`Student status updated to ${studentStatus}. Academic history preserved.`);
+            setIsActive(studentStatus === 'active');
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to update student status');
+        } finally {
+            setUpdatingStudentStatus(false);
         }
     };
 
@@ -1614,6 +1652,90 @@ const UserDrawer: React.FC<{
                                     </p>
                                 </div>
                             </div>
+
+                            {/* ══════════════════════════════════════════════════ */}
+                            {/* 1.5 STUDENT ENROLLMENT STATUS CARD (PHASE 10)     */}
+                            {/* ══════════════════════════════════════════════════ */}
+                            {(editRole === 'student' || user.role === 'student' || additionalRoles.includes('student')) && (
+                                <div className="p-4.5 rounded-2xl bg-white border border-gray-200/90 shadow-2xs space-y-3.5">
+                                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                                        <div className="flex items-center gap-2">
+                                            <GraduationCap className="w-4 h-4 text-emerald-600" />
+                                            <span className="text-xs font-bold uppercase tracking-wider text-foreground">Student Enrollment Status</span>
+                                        </div>
+                                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize ${
+                                            studentStatus === 'active'
+                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                                : studentStatus === 'graduated'
+                                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                                : studentStatus === 'withdrawn' || studentStatus === 'transferred'
+                                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                                : 'bg-stone-100 text-stone-700 border border-stone-200'
+                                        }`}>
+                                            Status: {studentStatus}
+                                        </span>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="text-xs font-semibold text-muted block mb-1.5">Change Enrollment Status</label>
+                                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                                                {(['active', 'withdrawn', 'transferred', 'graduated', 'inactive'] as const).map(st => (
+                                                    <button
+                                                        key={st}
+                                                        type="button"
+                                                        onClick={() => setStudentStatus(st)}
+                                                        className={`py-1.5 px-2 rounded-xl text-xs font-semibold capitalize border transition-all ${
+                                                            studentStatus === st
+                                                                ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
+                                                                : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                                                        }`}
+                                                    >
+                                                        {st}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {studentStatus !== 'active' && (
+                                            <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-2">
+                                                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                                    <span>Departure / Inactive Reason</span>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Reason (e.g. Relocated to another city, Graduated)"
+                                                    value={studentDepartureReason}
+                                                    onChange={e => setStudentDepartureReason(e.target.value)}
+                                                    className="clay-input w-full text-xs bg-white"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Additional notes (optional)"
+                                                    value={studentDepartureNotes}
+                                                    onChange={e => setStudentDepartureNotes(e.target.value)}
+                                                    className="clay-input w-full text-xs bg-white"
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center justify-between pt-1">
+                                            <p className="text-[10px] text-muted leading-tight">
+                                                Preserves marks, attendance, and fee history intact.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={handleUpdateStudentStatus}
+                                                disabled={updatingStudentStatus || (studentStatus === (user.student_status || (user.is_active ? 'active' : 'inactive')) && !studentDepartureReason)}
+                                                className="clay-btn text-xs py-1.5 px-3.5 disabled:opacity-40 whitespace-nowrap"
+                                            >
+                                                {updatingStudentStatus ? 'Updating…' : 'Save Status'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* ══════════════════════════════════════════════════ */}
                             {/* 2. FAMILY ACCESS CARD */}
@@ -2097,6 +2219,10 @@ const UserDrawer: React.FC<{
                             onSaved();
                             onClose();
                         }}
+                        onArchiveStudent={() => {
+                            setDeleteOpen(false);
+                            setStudentStatus('withdrawn');
+                        }}
                     />
                 </>
             )}
@@ -2325,17 +2451,22 @@ const DeleteUserConfirmModal: React.FC<{
     user: User;
     schoolName: string;
     onDeleted: () => void;
-}> = ({ isOpen, onClose, user, schoolName, onDeleted }) => {
+    onArchiveStudent?: () => void;
+}> = ({ isOpen, onClose, user, schoolName, onDeleted, onArchiveStudent }) => {
     const [text, setText] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
+    const [eligibilityChecking, setEligibilityChecking] = useState(false);
+    const [eligibility, setEligibility] = useState<{ can_delete: boolean; reasons: string[]; summary: string } | null>(null);
     const inputRef = React.useRef<HTMLInputElement>(null);
 
+    const isStudent = user.role === 'student';
     const schoolSlug = schoolName ? slugifyClient(schoolName) : 'platform';
     const expected = `${schoolSlug}/${(user.full_name || '').trim().toLowerCase()}`;
     const typed = text.trim().toLowerCase();
     const matches = typed === expected;
     const empty = typed.length === 0;
+
     // Live validation state
     const validation: { tone: 'idle' | 'progress' | 'error' | 'ok'; msg: string } =
         empty ? { tone: 'idle', msg: 'Type the confirmation string above to enable deletion.' }
@@ -2346,14 +2477,34 @@ const DeleteUserConfirmModal: React.FC<{
     useEffect(() => {
         if (isOpen) {
             setText(''); setErr('');
-            // Reliable focus after motion mount
-            const t = setTimeout(() => inputRef.current?.focus(), 60);
-            return () => clearTimeout(t);
+            if (isStudent && user.school_id) {
+                setEligibilityChecking(true);
+                (async () => {
+                    try {
+                        const { data, error } = await supabase.rpc('fn_check_student_delete_eligibility', {
+                            _school_id: user.school_id,
+                            _student_id: user.id,
+                        });
+                        if (!error && data) {
+                            setEligibility(data as { can_delete: boolean; reasons: string[]; summary: string });
+                        }
+                    } catch {
+                        // ignore
+                    } finally {
+                        setEligibilityChecking(false);
+                    }
+                })();
+            } else {
+                setEligibility(null);
+                setEligibilityChecking(false);
+                const t = setTimeout(() => inputRef.current?.focus(), 60);
+                return () => clearTimeout(t);
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, user, isStudent]);
 
     const handleDelete = async () => {
-        if (!matches) return;
+        if (!matches || (eligibility && !eligibility.can_delete)) return;
         setBusy(true);
         setErr('');
         try {
@@ -2376,7 +2527,7 @@ const DeleteUserConfirmModal: React.FC<{
     };
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && matches && !busy) handleDelete();
+        if (e.key === 'Enter' && matches && !busy && (!eligibility || eligibility.can_delete)) handleDelete();
         if (e.key === 'Escape' && !busy) onClose();
     };
 
@@ -2415,48 +2566,97 @@ const DeleteUserConfirmModal: React.FC<{
                                 </div>
                             </div>
 
-                            <div className="bg-rose-50/60 border border-rose-100 rounded-xl p-3 mb-3">
-                                <p className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider mb-1">To confirm, type</p>
-                                <p className="font-mono text-sm font-bold text-rose-900 break-all">{expected}</p>
-                            </div>
+                            {eligibilityChecking ? (
+                                <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-center py-6 text-xs text-muted">
+                                    Checking academic record dependencies…
+                                </div>
+                            ) : eligibility && !eligibility.can_delete ? (
+                                <div className="space-y-4">
+                                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+                                        <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
+                                            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                                            <span>Permanent Deletion Blocked</span>
+                                        </div>
+                                        <p className="text-xs text-amber-900/90 leading-relaxed">
+                                            This student cannot be permanently deleted because active academic or financial records exist:
+                                        </p>
+                                        <ul className="list-disc list-inside text-[11px] font-semibold text-amber-950 space-y-0.5">
+                                            {eligibility.reasons.map((r, i) => (
+                                                <li key={i}>{r}</li>
+                                            ))}
+                                        </ul>
+                                        <p className="text-[11px] text-amber-800 pt-1">
+                                            Hard deletion is refused to preserve marks, attendance, and fee history. Please mark the student as <strong>Withdrawn</strong>, <strong>Transferred</strong>, or <strong>Inactive</strong> instead.
+                                        </p>
+                                    </div>
 
-                            <input
-                                ref={inputRef}
-                                type="text"
-                                value={text}
-                                onChange={e => setText(e.target.value)}
-                                onKeyDown={onKeyDown}
-                                placeholder={expected}
-                                aria-invalid={validation.tone === 'error'}
-                                aria-describedby="delete-confirm-hint"
-                                className={`clay-input w-full text-sm font-mono transition-colors ${
-                                    validation.tone === 'ok' ? 'border-emerald-300 ring-1 ring-emerald-200' :
-                                    validation.tone === 'error' ? 'border-rose-300 ring-1 ring-rose-200' : ''
-                                }`}
-                            />
-                            <p id="delete-confirm-hint" className={`text-[11px] mt-1.5 ${validationStyles}`}>
-                                {validation.msg}
-                            </p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={onClose}
+                                            className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors"
+                                        >
+                                            Close
+                                        </button>
+                                        {onArchiveStudent && (
+                                            <button
+                                                onClick={() => {
+                                                    onClose();
+                                                    onArchiveStudent();
+                                                }}
+                                                className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition-colors inline-flex items-center justify-center gap-1.5"
+                                            >
+                                                <GraduationCap className="w-4 h-4" />
+                                                Archive Student
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="bg-rose-50/60 border border-rose-100 rounded-xl p-3 mb-3">
+                                        <p className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider mb-1">To confirm, type</p>
+                                        <p className="font-mono text-sm font-bold text-rose-900 break-all">{expected}</p>
+                                    </div>
 
-                            {err && <div className="mt-3 p-2.5 bg-red-50 text-red-700 text-xs font-medium rounded-lg border border-red-100">{err}</div>}
+                                    <input
+                                        ref={inputRef}
+                                        type="text"
+                                        value={text}
+                                        onChange={e => setText(e.target.value)}
+                                        onKeyDown={onKeyDown}
+                                        placeholder={expected}
+                                        aria-invalid={validation.tone === 'error'}
+                                        aria-describedby="delete-confirm-hint"
+                                        className={`clay-input w-full text-sm font-mono transition-colors ${
+                                            validation.tone === 'ok' ? 'border-emerald-300 ring-1 ring-emerald-200' :
+                                            validation.tone === 'error' ? 'border-rose-300 ring-1 ring-rose-200' : ''
+                                        }`}
+                                    />
+                                    <p id="delete-confirm-hint" className={`text-[11px] mt-1.5 ${validationStyles}`}>
+                                        {validation.msg}
+                                    </p>
 
-                            <div className="flex gap-2 mt-5">
-                                <button
-                                    onClick={onClose}
-                                    disabled={busy}
-                                    className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors disabled:opacity-50"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleDelete}
-                                    disabled={!matches || busy}
-                                    className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                    {busy ? 'Deleting…' : 'Delete forever'}
-                                </button>
-                            </div>
+                                    {err && <div className="mt-3 p-2.5 bg-red-50 text-red-700 text-xs font-medium rounded-lg border border-red-100">{err}</div>}
+
+                                    <div className="flex gap-2 mt-5">
+                                        <button
+                                            onClick={onClose}
+                                            disabled={busy}
+                                            className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleDelete}
+                                            disabled={!matches || busy}
+                                            className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                            {busy ? 'Deleting…' : 'Delete forever'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </motion.div>
                 </>
@@ -3658,22 +3858,30 @@ const UserManagement: React.FC = () => {
     const users: User[] = useMemo(() => {
         if (!bundle) return [];
         const schoolMap = new Map(bundle.schools.map(s => [s.id, s.name]));
-        return bundle.profiles.map((u): User => ({
-            id: u.id,
-            full_name: u.full_name,
-            role: u.role,
-            roles: u.roles && u.roles.length > 0 ? u.roles : [u.role],
-            school_id: u.school_id,
-            school_name: u.school_id ? (schoolMap.get(u.school_id) || 'Unknown') : 'Platform',
-            status: u.is_active ? 'Active' : 'Disabled',
-            is_active: u.is_active,
-            metadata: (u.metadata as { permissions?: unknown[] }) || {},
-            updated_at: u.updated_at,
-            email: u.email,
-            avatar_url: u.avatar_url,
-            recovery_email: u.recovery_email ?? null,
-            recovery_email_verified: Boolean(u.recovery_email_verified),
-        }));
+        return bundle.profiles.map((u): User => {
+            const studentStatus = u.role === 'student' ? (u.student_status || (u.is_active ? 'active' : 'inactive')) : null;
+            let displayStatus = u.is_active ? 'Active' : 'Disabled';
+            if (u.role === 'student' && studentStatus && studentStatus !== 'active') {
+                displayStatus = studentStatus.charAt(0).toUpperCase() + studentStatus.slice(1);
+            }
+            return {
+                id: u.id,
+                full_name: u.full_name,
+                role: u.role,
+                roles: u.roles && u.roles.length > 0 ? u.roles : [u.role],
+                school_id: u.school_id,
+                school_name: u.school_id ? (schoolMap.get(u.school_id) || 'Unknown') : 'Platform',
+                status: displayStatus,
+                is_active: u.is_active,
+                student_status: studentStatus,
+                metadata: (u.metadata as { permissions?: unknown[] }) || {},
+                updated_at: u.updated_at,
+                email: u.email,
+                avatar_url: u.avatar_url,
+                recovery_email: u.recovery_email ?? null,
+                recovery_email_verified: Boolean(u.recovery_email_verified),
+            };
+        });
     }, [bundle]);
 
     /* Group & filter */
