@@ -154,6 +154,86 @@ const UnlinkChildConfirmModal: React.FC<{
     );
 };
 
+/* 1b. Last Child Unlinked - No Active Persona Modal (Phase 11) */
+interface LastChildUnlinkedInfo {
+    parentId: string;
+    parentName: string;
+    studentName: string;
+    schoolId: string;
+}
+
+const LastChildUnlinkedModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    info: LastChildUnlinkedInfo | null;
+    onDeactivate: () => Promise<void>;
+    onRelink: () => void;
+    busy: boolean;
+}> = ({ isOpen, onClose, info, onDeactivate, onRelink, busy }) => {
+    if (!isOpen || !info) return null;
+    return (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-amber-200 space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">Last Child Unlinked</h3>
+                        <p className="text-xs text-muted">No remaining children or staff roles</p>
+                    </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-700 space-y-1">
+                    <p><strong className="text-stone-900">Guardian:</strong> {info.parentName}</p>
+                    <p><strong className="text-stone-900">Unlinked Child:</strong> {info.studentName}</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-1.5 leading-relaxed">
+                    <p className="font-semibold text-amber-950">No Active School Persona Remaining</p>
+                    <p>
+                        <strong>{info.parentName}</strong> has no other active children enrolled and does not hold an active teaching or staff role at this school.
+                    </p>
+                    <p className="text-[11px] text-amber-800">
+                        The user account has <strong>NOT</strong> been deleted. Choose how you would like to handle this account:
+                    </p>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onDeactivate}
+                        className="w-full py-2.5 px-3 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                        <UserMinus className="w-3.5 h-3.5" />
+                        {busy ? 'Deactivating…' : 'Deactivate Account (Recommended)'}
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onRelink}
+                        className="w-full py-2.5 px-3 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Link Another Student to This Family
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onClose}
+                        className="w-full py-2 px-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 font-semibold text-xs transition-colors"
+                    >
+                        Retain Account Active Temporarily
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 /* 2. Edit Relationship Modal */
 const EditRelationshipModal: React.FC<{
     isOpen: boolean;
@@ -898,6 +978,10 @@ const UserDrawer: React.FC<{
     const [unlinkingStudent, setUnlinkingStudent] = useState<LinkedStudentTarget | null>(null);
     const [unlinkingBusy, setUnlinkingBusy] = useState(false);
 
+    // Phase 11: Last child unlinked modal state
+    const [lastChildUnlinkedInfo, setLastChildUnlinkedInfo] = useState<LastChildUnlinkedInfo | null>(null);
+    const [deactivatingParentBusy, setDeactivatingParentBusy] = useState(false);
+
     // Edit relationship modal state
     const [editingRelationshipLink, setEditingRelationshipLink] = useState<LinkedStudentTarget | null>(null);
     const [editRelVal, setEditRelVal] = useState('parent');
@@ -1102,7 +1186,7 @@ const UserDrawer: React.FC<{
         return () => clearTimeout(timer);
     }, [linkStudentModalOpen, user, editSchool, studentSearchQuery]);
 
-    // Handle Unlink Student
+    // Handle Unlink Student (Phase 11: Capability evaluation)
     const handleUnlinkStudent = async () => {
         if (!user || !unlinkingStudent) return;
         const targetSchool = editSchool || user.school_id;
@@ -1111,16 +1195,40 @@ const UserDrawer: React.FC<{
         setUnlinkingBusy(true);
         setErrorMsg('');
         try {
-            const { error } = await supabase.rpc('fn_unlink_student_guardian', {
+            const { data, error } = await supabase.rpc('fn_unlink_student_guardian', {
                 _school_id: targetSchool,
                 _link_id: unlinkingStudent.link_id,
             });
             if (error) throw error;
 
-            toast.success(`${unlinkingStudent.full_name} unlinked from family account.`);
+            const res = (data as any) || {};
+            const removedStudentName = unlinkingStudent.full_name;
             setUnlinkingStudent(null);
             fetchFamilyLinks(user.id);
             onSaved();
+
+            if (res.remaining_children_count === 0) {
+                if (res.new_primary_role) {
+                    toast.success(`${removedStudentName} unlinked. Account transitioned to ${res.new_primary_role} account.`);
+                    setEditRole(res.new_primary_role);
+                    if (targetSchool) {
+                        queryClient.invalidateQueries({ queryKey: qk.teachers.bySchool(targetSchool) });
+                    }
+                    queryClient.invalidateQueries({ queryKey: qk.userManagement });
+                    queryClient.invalidateQueries({ queryKey: ['persona-summary'] });
+                } else if (res.has_active_persona === false) {
+                    setLastChildUnlinkedInfo({
+                        parentId: user.id,
+                        parentName: user.full_name || user.email,
+                        studentName: removedStudentName,
+                        schoolId: targetSchool,
+                    });
+                } else {
+                    toast.success(`${removedStudentName} unlinked from family account.`);
+                }
+            } else {
+                toast.success(`${removedStudentName} unlinked from family account.`);
+            }
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Failed to unlink student';
             setErrorMsg(msg);
@@ -1128,6 +1236,38 @@ const UserDrawer: React.FC<{
         } finally {
             setUnlinkingBusy(false);
         }
+    };
+
+    // Phase 11: Handle deactivate unlinked parent
+    const handleDeactivateUnlinkedParent = async () => {
+        if (!lastChildUnlinkedInfo) return;
+        setDeactivatingParentBusy(true);
+        try {
+            const { error } = await supabase
+                .from('profiles')
+                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .eq('id', lastChildUnlinkedInfo.parentId);
+            if (error) throw error;
+
+            toast.success(`Account for ${lastChildUnlinkedInfo.parentName} deactivated.`);
+            setIsActive(false);
+            setLastChildUnlinkedInfo(null);
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
+            onSaved();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to deactivate account';
+            toast.error(msg);
+        } finally {
+            setDeactivatingParentBusy(false);
+        }
+    };
+
+    // Phase 11: Handle relink another student from last child modal
+    const handleRelinkFromLastChildModal = () => {
+        setLastChildUnlinkedInfo(null);
+        setSelectedStudentCandidate(null);
+        setStudentSearchQuery('');
+        setLinkStudentModalOpen(true);
     };
 
     // Handle Update Relationship
@@ -2142,6 +2282,15 @@ const UserDrawer: React.FC<{
                         student={unlinkingStudent}
                         onConfirm={handleUnlinkStudent}
                         busy={unlinkingBusy}
+                    />
+
+                    <LastChildUnlinkedModal
+                        isOpen={!!lastChildUnlinkedInfo}
+                        onClose={() => setLastChildUnlinkedInfo(null)}
+                        info={lastChildUnlinkedInfo}
+                        onDeactivate={handleDeactivateUnlinkedParent}
+                        onRelink={handleRelinkFromLastChildModal}
+                        busy={deactivatingParentBusy}
                     />
 
                     <EditRelationshipModal

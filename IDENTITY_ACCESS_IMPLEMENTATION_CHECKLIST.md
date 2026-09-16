@@ -1618,7 +1618,7 @@ Hard delete is exceptional and strictly guarded:
 
 ---
 
-# PHASE 11 — REMOVE THE LAST CHILD
+# PHASE 11 — REMOVE THE LAST CHILD [COMPLETED]
 
 Consider:
 
@@ -1681,6 +1681,31 @@ Admin may then:
 * relink a student
 
 Do not guess and delete automatically.
+
+### Implemented & Verified Tasks (Phase 11):
+- [x] **Additive Migration**: `supabase/migrations/20260915043000_phase11_remove_last_child.sql` applied and recorded in remote DB `schema_migrations`.
+- [x] **Capability Evaluation in RPC**: Enhanced `public.fn_unlink_student_guardian`:
+  - Accurately counts `remaining_children_count` in the same school.
+  - If 0 children remain, evaluates active Teacher capability (`employees.status = 'active'` + teacher role).
+  - Evaluates other active staff roles (`accountant`, `receptionist`, `admin`, `principal`).
+  - If parent has active teacher/staff capability, atomically transitions primary role (`profiles.role`) to `'teacher'` or that staff role, forming a Teacher-only or Staff-only account cleanly.
+  - If no teacher and no staff capabilities exist, evaluates `has_active_persona: false`.
+  - Never automatically deletes the Auth or profile account. Preserves student academic records, marks, and attendance 100% intact.
+  - Records detailed structured evaluation in `admin_action_audit`.
+  - Returns `{ success, link_id, parent_id, parent_name, student_id, student_name, was_primary, next_primary_link_id, remaining_children_count, has_active_teacher, new_primary_role, has_active_persona }`.
+- [x] **Frontend UI & Structured Admin Action**:
+  - Updated `handleUnlinkStudent` in `src/pages/UserManagement.tsx` to handle capability evaluation results from `fn_unlink_student_guardian`.
+  - When account transitions to Teacher/Staff, automatically updates UI role state and invalidates relevant caches with clear toast confirmation.
+  - When `has_active_persona: false`, displays `LastChildUnlinkedModal`:
+    - Explains that the unlinked student was the last child and the guardian has no remaining active children or staff roles.
+    - Offers 3 structured admin options:
+      1. **Deactivate Account (Recommended)**: Sets `profiles.is_active = false` without deleting credentials or history.
+      2. **Link Another Student**: Launches `LinkStudentModal` immediately.
+      3. **Retain Account Active Temporarily**: Dismisses modal, allowing admin review.
+- [x] **Automated Remote DB Verification**: Ran `scratch/test_phase11_full.cjs` against remote Supabase database:
+  - Scenario 1 verified: Last child unlinked from parent who is also an active teacher -> primary role transitioned to `'teacher'`, account not deleted, student intact, audit logged.
+  - Scenario 2 verified: Last child unlinked from pure parent -> `has_active_persona = false`, account not deleted, student intact, audit logged.
+- [x] **Build Verification**: `npm run build` executed and passed with 0 errors.
 
 ---
 
