@@ -31,6 +31,7 @@ import {
     Plus,
     UserMinus,
     Settings2,
+    ExternalLink,
 } from 'lucide-react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
@@ -238,22 +239,23 @@ const LastChildUnlinkedModal: React.FC<{
 const EditRelationshipModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    student: LinkedStudentTarget | null;
+    targetName: string;
+    targetRoleLabel: string;
     relationship: string;
     setRelationship: (val: string) => void;
     isPrimary: boolean;
     setIsPrimary: (val: boolean) => void;
     onSave: () => Promise<void>;
     busy: boolean;
-}> = ({ isOpen, onClose, student, relationship, setRelationship, isPrimary, setIsPrimary, onSave, busy }) => {
-    if (!isOpen || !student) return null;
+}> = ({ isOpen, onClose, targetName, targetRoleLabel, relationship, setRelationship, isPrimary, setIsPrimary, onSave, busy }) => {
+    if (!isOpen) return null;
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
             <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-200 space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h3 className="text-base font-bold text-foreground">Edit Relationship</h3>
-                        <p className="text-xs text-muted">Update guardian role for {student.full_name}</p>
+                        <p className="text-xs text-muted">Update {targetRoleLabel || 'family'} role for {targetName}</p>
                     </div>
                     <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600">
                         <X className="w-4 h-4" />
@@ -262,21 +264,27 @@ const EditRelationshipModal: React.FC<{
 
                 <div className="space-y-3">
                     <div>
-                        <label className="text-xs font-semibold text-stone-700 block mb-1">Relationship</label>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">Relationship Role</label>
                         <select
                             value={relationship}
-                            onChange={e => setRelationship(e.target.value)}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setRelationship(val);
+                                if (val.toLowerCase() === 'primary guardian') {
+                                    setIsPrimary(true);
+                                }
+                            }}
                             className="clay-input w-full text-sm bg-white"
                         >
-                            <option value="Son">Son</option>
-                            <option value="Daughter">Daughter</option>
-                            <option value="Child">Child</option>
-                            <option value="Ward">Ward</option>
                             <option value="Mother">Mother</option>
                             <option value="Father">Father</option>
-                            <option value="Legal Guardian">Legal Guardian</option>
-                            <option value="Parent">Parent</option>
-                            <option value="Other Guardian">Other Guardian</option>
+                            <option value="Guardian">Guardian</option>
+                            <option value="Other authorized guardian">Other authorized guardian</option>
+                            <option value="Primary guardian">Primary guardian</option>
+                            <option value="Emergency contact">Emergency contact</option>
+                            <option value="Son">Son</option>
+                            <option value="Daughter">Daughter</option>
+                            <option value="Ward">Ward</option>
                         </select>
                     </div>
 
@@ -288,11 +296,15 @@ const EditRelationshipModal: React.FC<{
                                 onChange={e => setIsPrimary(e.target.checked)}
                                 className="w-4 h-4 accent-primary rounded"
                             />
-                            <span>Set as Primary Child for this family account</span>
+                            <span>Set as Primary Contact for this family link</span>
                         </label>
                         <p className="text-[10px] text-muted mt-1 ml-6">
-                            Primary child appears as default on parent dashboard and notifications.
+                            Primary status routes default portal views and notification priority.
                         </p>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[10px] text-amber-900 leading-relaxed">
+                        <span className="font-bold">Metadata only:</span> Changing relationship metadata routes family communication without altering login credentials or duplicating student records.
                     </div>
                 </div>
 
@@ -1069,7 +1081,8 @@ const UserDrawer: React.FC<{
     schools: { id: string; name: string; email_domain?: string | null; combined_parent_student_account?: boolean }[];
     permissions?: unknown[];
     onSaved: () => void;
-}> = ({ user, isOpen, onClose, schools, onSaved }) => {
+    onSelectUser?: (user: User) => void;
+}> = ({ user, isOpen, onClose, schools, onSaved, onSelectUser }) => {
     const { role: currentRole, user: currentUser } = useAuth();
     const queryClient = useQueryClient();
     const isSuperadmin = currentRole === 'superadmin';
@@ -1112,11 +1125,37 @@ const UserDrawer: React.FC<{
     const [lastChildUnlinkedInfo, setLastChildUnlinkedInfo] = useState<LastChildUnlinkedInfo | null>(null);
     const [deactivatingParentBusy, setDeactivatingParentBusy] = useState(false);
 
-    // Edit relationship modal state
-    const [editingRelationshipLink, setEditingRelationshipLink] = useState<LinkedStudentTarget | null>(null);
+    // Edit relationship modal state (Phase 13: supports both child & guardian targets)
+    interface EditableRelationshipTarget {
+        link_id: string;
+        target_name: string;
+        target_role_label: string;
+        relationship: string;
+        is_primary: boolean;
+    }
+    const [editingRelationshipLink, setEditingRelationshipLink] = useState<EditableRelationshipTarget | null>(null);
     const [editRelVal, setEditRelVal] = useState('parent');
     const [editPrimaryVal, setEditPrimaryVal] = useState(false);
     const [updatingRelBusy, setUpdatingRelBusy] = useState(false);
+
+    const handleOpenCanonicalProfile = async (targetProfileId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', targetProfileId)
+                .single();
+            if (error || !data) {
+                toast.error('Unable to load canonical profile.');
+                return;
+            }
+            if (onSelectUser) {
+                onSelectUser(data as User);
+            }
+        } catch {
+            toast.error('Failed to load canonical profile.');
+        }
+    };
 
     // Link existing student modal state
     const [linkStudentModalOpen, setLinkStudentModalOpen] = useState(false);
@@ -2103,20 +2142,58 @@ const UserDrawer: React.FC<{
                                         ) : (
                                             <div className="space-y-1.5">
                                                 {linkedGuardians.map(g => (
-                                                    <div key={g.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                                                    <div key={g.link_id} className="p-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between gap-2">
                                                         <div className="min-w-0">
-                                                            <p className="text-xs font-bold text-foreground truncate">
-                                                                {g.staff_person_name || g.full_name}
-                                                                <span className="ml-1.5 text-[10px] font-normal text-muted capitalize">({g.relationship})</span>
-                                                                {g.is_primary && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Primary</span>}
-                                                            </p>
-                                                            <p className="text-[11px] font-mono text-muted truncate">{g.email}</p>
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="text-xs font-bold text-foreground truncate">
+                                                                    {g.staff_person_name || g.full_name}
+                                                                </span>
+                                                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded capitalize">
+                                                                    {g.relationship}
+                                                                </span>
+                                                                {g.is_primary && (
+                                                                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                                                                        Primary
+                                                                    </span>
+                                                                )}
+                                                                {g.is_staff && (
+                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
+                                                                        Teacher
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[11px] font-mono text-muted truncate mt-0.5">{g.email}</p>
                                                         </div>
-                                                        {g.is_staff && (
-                                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
-                                                                Teacher
-                                                            </span>
-                                                        )}
+                                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingRelationshipLink({
+                                                                        link_id: g.link_id,
+                                                                        target_name: g.staff_person_name || g.full_name,
+                                                                        target_role_label: 'guardian',
+                                                                        relationship: g.relationship,
+                                                                        is_primary: g.is_primary,
+                                                                    });
+                                                                    setEditRelVal(g.relationship);
+                                                                    setEditPrimaryVal(g.is_primary);
+                                                                }}
+                                                                title="Edit relationship metadata"
+                                                                className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                            >
+                                                                <Settings2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            {onSelectUser && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleOpenCanonicalProfile(g.guardian_id)}
+                                                                    title="Open canonical guardian profile"
+                                                                    className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                                >
+                                                                    <ExternalLink className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -2209,15 +2286,31 @@ const UserDrawer: React.FC<{
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
-                                                                    setEditingRelationshipLink(s);
+                                                                    setEditingRelationshipLink({
+                                                                        link_id: s.link_id,
+                                                                        target_name: s.full_name,
+                                                                        target_role_label: 'child',
+                                                                        relationship: s.relationship,
+                                                                        is_primary: s.is_primary,
+                                                                    });
                                                                     setEditRelVal(s.relationship);
                                                                     setEditPrimaryVal(s.is_primary);
                                                                 }}
-                                                                title="Edit relationship"
+                                                                title="Edit relationship metadata"
                                                                 className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
                                                             >
                                                                 <Settings2 className="w-3.5 h-3.5" />
                                                             </button>
+                                                            {onSelectUser && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleOpenCanonicalProfile(s.student_id)}
+                                                                    title="Open canonical student profile (edit student identity, enrollment, etc.)"
+                                                                    className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                                >
+                                                                    <ExternalLink className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setUnlinkingStudent(s)}
@@ -2492,7 +2585,8 @@ const UserDrawer: React.FC<{
                     <EditRelationshipModal
                         isOpen={!!editingRelationshipLink}
                         onClose={() => setEditingRelationshipLink(null)}
-                        student={editingRelationshipLink}
+                        targetName={editingRelationshipLink?.target_name || ''}
+                        targetRoleLabel={editingRelationshipLink?.target_role_label || 'family'}
                         relationship={editRelVal}
                         setRelationship={setEditRelVal}
                         isPrimary={editPrimaryVal}
@@ -4368,6 +4462,7 @@ const UserManagement: React.FC = () => {
                     schools={schools}
                     permissions={permissions}
                     onSaved={refetchAll}
+                    onSelectUser={setSelectedUser}
                 />
 
                 <AddUserModal

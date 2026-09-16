@@ -1770,7 +1770,7 @@ one family login
 
 ---
 
-# PHASE 13 — EDIT CHILD / FAMILY RELATIONSHIPS
+# PHASE 13 — EDIT CHILD / FAMILY RELATIONSHIPS [COMPLETED]
 
 Admin should be able to edit relationship metadata where appropriate:
 
@@ -1789,6 +1789,19 @@ Primary guardian
 Emergency contact
 
 ```
+
+* **Status**: Fully implemented, hardened, and verified.
+* **Metadata-Only Updates**: Changing relationship classifications (e.g., `Mother` → `Guardian`, or setting `Emergency contact`) purely updates `public.parent_student` metadata with zero mutations to `auth.users` or `public.profiles`. Accounts are never re-created.
+* **Atomic Primary Rotation**: Selecting `Primary guardian` or toggling primary status atomically demotes prior primary relationships for the family within the tenant school.
+* **Canonical Architecture**: The relationship table stores only the relationship (`parent_student`). Editing student identity or class enrollment is executed via direct one-click navigation to the canonical student drawer (`handleOpenCanonicalProfile`), preserving strict data authority.
+* **Bidirectional Editing**: Admins can edit relationship metadata from both the Parent profile drawer (child cards) and Student profile drawer (guardian cards).
+* **Audit**: Canonical audit row logged to `public.admin_action_audit` (`action = 'update_student_guardian_relationship'`, populating `detail`, `actor_role`, and `school_id`).
+* **Automated Remote DB Verification**: Ran `scratch/test_phase13_full.cjs` against remote Supabase database:
+  - Scenario 1: Promote child to Primary guardian with atomic rotation of prior primary links.
+  - Scenario 2: Update Mother -> Guardian with zero account/profile re-creation.
+  - Scenario 3: Emergency contact metadata recording.
+  - Scenario 4: Strict tenant isolation enforcement.
+* **Build Verification**: `npm run build` executed and passed with 0 errors.
 
 Changing:
 
