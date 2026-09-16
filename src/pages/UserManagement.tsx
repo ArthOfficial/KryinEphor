@@ -328,50 +328,80 @@ interface StudentCandidate {
     already_linked: boolean;
 }
 
-/* 3. Link Existing Student Modal */
-const LinkStudentModal: React.FC<{
+/* 3. Add Child Modal (Phase 12: Two Paths — Link Existing Student vs Create New Student) */
+const AddChildModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
+    // Common
+    relationship: string;
+    setRelationship: (val: string) => void;
+    isPrimary: boolean;
+    setIsPrimary: (val: boolean) => void;
+    // Tab 1: Link Existing
     searchQuery: string;
     setSearchQuery: (val: string) => void;
     searching: boolean;
     candidates: StudentCandidate[];
     selected: StudentCandidate | null;
     setSelected: (val: StudentCandidate | null) => void;
-    relationship: string;
-    setRelationship: (val: string) => void;
-    isPrimary: boolean;
-    setIsPrimary: (val: boolean) => void;
-    onLink: () => Promise<void>;
-    busy: boolean;
+    onLinkExisting: () => Promise<void>;
+    linkingBusy: boolean;
+    // Tab 2: Create New
+    schoolDomain: string;
+    newStudentName: string;
+    setNewStudentName: (val: string) => void;
+    newStudentEmailLocal: string;
+    setNewStudentEmailLocal: (val: string) => void;
+    newStudentPassword: string;
+    setNewStudentPassword: (val: string) => void;
+    onCreateAndLink: () => Promise<void>;
+    creatingBusy: boolean;
 }> = ({
     isOpen,
     onClose,
+    relationship,
+    setRelationship,
+    isPrimary,
+    setIsPrimary,
     searchQuery,
     setSearchQuery,
     searching,
     candidates,
     selected,
     setSelected,
-    relationship,
-    setRelationship,
-    isPrimary,
-    setIsPrimary,
-    onLink,
-    busy,
+    onLinkExisting,
+    linkingBusy,
+    schoolDomain,
+    newStudentName,
+    setNewStudentName,
+    newStudentEmailLocal,
+    setNewStudentEmailLocal,
+    newStudentPassword,
+    setNewStudentPassword,
+    onCreateAndLink,
+    creatingBusy,
 }) => {
+    const [mode, setMode] = useState<'link' | 'create'>('link');
+
+    useEffect(() => {
+        if (isOpen) {
+            setMode('link');
+        }
+    }, [isOpen]);
+
     if (!isOpen) return null;
+
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-xs">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-                            <Plus className="w-4 h-4" />
+                        <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                            <UsersIcon className="w-4 h-4" />
                         </div>
                         <div>
-                            <h3 className="text-base font-bold text-foreground">Link Existing Student</h3>
-                            <p className="text-xs text-muted">Search student in current school and attach to family</p>
+                            <h3 className="text-base font-bold text-foreground">Add Child to Family</h3>
+                            <p className="text-xs text-muted">Link an enrolled student or register a new child</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600">
@@ -379,121 +409,221 @@ const LinkStudentModal: React.FC<{
                     </button>
                 </div>
 
-                <div className="space-y-3">
-                    <div>
-                        <label className="text-xs font-semibold text-stone-700 block mb-1">Search Student</label>
-                        <div className="relative">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                {/* Mode Selector Tabs */}
+                <div className="flex rounded-xl bg-stone-100 p-1 border border-stone-200/60">
+                    <button
+                        type="button"
+                        onClick={() => setMode('link')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                            mode === 'link' ? 'bg-white shadow-2xs text-purple-900' : 'text-stone-500 hover:text-stone-800'
+                        }`}
+                    >
+                        Link Existing Student
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMode('create')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                            mode === 'create' ? 'bg-white shadow-2xs text-purple-900' : 'text-stone-500 hover:text-stone-800'
+                        }`}
+                    >
+                        Create New Student
+                    </button>
+                </div>
+
+                {/* Shared Relationship & Primary Settings */}
+                <div className="p-3 bg-stone-50/80 rounded-xl border border-stone-200/80 space-y-2">
+                    <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                            <label className="text-[10px] font-semibold text-stone-600 block mb-0.5">Relationship to Guardian</label>
+                            <select
+                                value={relationship}
+                                onChange={e => setRelationship(e.target.value)}
+                                className="clay-input w-full text-xs py-1 bg-white"
+                            >
+                                <option value="Son">Son</option>
+                                <option value="Daughter">Daughter</option>
+                                <option value="Child">Child</option>
+                                <option value="Ward">Ward</option>
+                                <option value="Mother">Mother</option>
+                                <option value="Father">Father</option>
+                                <option value="Legal Guardian">Legal Guardian</option>
+                                <option value="Parent">Parent</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center pt-3.5">
+                            <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={isPrimary}
+                                    onChange={e => setIsPrimary(e.target.checked)}
+                                    className="w-3.5 h-3.5 accent-purple-600"
+                                />
+                                <span>Set as Primary Child</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                {mode === 'link' ? (
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">Search School Roster</label>
+                            <div className="relative">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    placeholder="Search by student name, admission number, or class…"
+                                    className="clay-input w-full pl-9 text-xs bg-stone-50"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="max-h-44 overflow-y-auto space-y-1.5 border border-stone-200 rounded-xl p-2 bg-stone-50/50">
+                            {searching && <p className="text-xs text-muted text-center py-3">Searching school roster…</p>}
+                            {!searching && candidates.length === 0 && (
+                                <p className="text-xs text-stone-400 text-center py-3">
+                                    {searchQuery ? 'No matching students found in this school.' : 'Type to search students.'}
+                                </p>
+                            )}
+                            {candidates.map(c => {
+                                const isChosen = selected?.student_id === c.student_id;
+                                return (
+                                    <div
+                                        key={c.student_id}
+                                        onClick={() => !c.already_linked && setSelected(c)}
+                                        className={`p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between ${
+                                            c.already_linked
+                                                ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-60'
+                                                : isChosen
+                                                    ? 'bg-purple-100/90 border-purple-400 text-purple-900 font-bold shadow-2xs cursor-pointer'
+                                                    : 'bg-white border-stone-200 hover:bg-stone-50 cursor-pointer text-stone-800'
+                                        }`}
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="font-semibold truncate">🎓 {c.full_name}</p>
+                                            <p className="text-[10px] text-muted">
+                                                {c.class_name ? `Class ${c.class_name}${c.section_name ? ` (${c.section_name})` : ''}` : 'No Class Assigned'}
+                                                {c.login_id ? ` • Adm ID: ${c.login_id}` : ''}
+                                            </p>
+                                        </div>
+                                        {c.already_linked ? (
+                                            <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">
+                                                Already Linked
+                                            </span>
+                                        ) : isChosen ? (
+                                            <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-purple-700 text-white">
+                                                Selected
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                disabled={linkingBusy}
+                                className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!selected || linkingBusy}
+                                onClick={onLinkExisting}
+                                className="px-4 py-2 text-xs font-bold rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                            >
+                                {linkingBusy ? 'Linking Student…' : 'Confirm Link'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">
+                                Student Full Name <span className="text-rose-500">*</span>
+                            </label>
                             <input
                                 type="text"
                                 autoFocus
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                placeholder="Type student name, admission number, or class…"
-                                className="clay-input w-full pl-9 text-xs bg-stone-50"
+                                value={newStudentName}
+                                onChange={e => setNewStudentName(e.target.value)}
+                                placeholder="e.g. Aarav Sharma"
+                                className="clay-input w-full text-xs bg-stone-50"
                             />
                         </div>
-                    </div>
 
-                    <div className="max-h-44 overflow-y-auto space-y-1.5 border border-stone-200 rounded-xl p-2 bg-stone-50/50">
-                        {searching && <p className="text-xs text-muted text-center py-3">Searching school roster…</p>}
-                        {!searching && candidates.length === 0 && (
-                            <p className="text-xs text-stone-400 text-center py-3">
-                                {searchQuery ? 'No matching students found in this school.' : 'Type to search students.'}
-                            </p>
-                        )}
-                        {candidates.map(c => {
-                            const isChosen = selected?.student_id === c.student_id;
-                            return (
-                                <div
-                                    key={c.student_id}
-                                    onClick={() => !c.already_linked && setSelected(c)}
-                                    className={`p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between ${
-                                        c.already_linked
-                                            ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-60'
-                                            : isChosen
-                                                ? 'bg-primary/10 border-primary text-primary font-bold shadow-2xs cursor-pointer'
-                                                : 'bg-white border-stone-200 hover:bg-stone-50 cursor-pointer text-stone-800'
-                                    }`}
-                                >
-                                    <div className="min-w-0">
-                                        <p className="font-semibold truncate">🎓 {c.full_name}</p>
-                                        <p className="text-[10px] text-muted">
-                                            {c.class_name ? `Class ${c.class_name}${c.section_name ? ` (${c.section_name})` : ''}` : 'No Class Assigned'}
-                                            {c.login_id ? ` • Adm ID: ${c.login_id}` : ''}
-                                        </p>
-                                    </div>
-                                    {c.already_linked ? (
-                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">
-                                            Already Linked
-                                        </span>
-                                    ) : isChosen ? (
-                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-primary text-white">
-                                            Selected
-                                        </span>
-                                    ) : null}
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">
+                                Student Login Username <span className="text-rose-500">*</span>
+                            </label>
+                            {schoolDomain ? (
+                                <div className="flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-stone-50 focus-within:ring-2 focus-within:ring-purple-400/20">
+                                    <input
+                                        type="text"
+                                        value={newStudentEmailLocal}
+                                        onChange={e => setNewStudentEmailLocal(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                                        placeholder="aarav.s"
+                                        className="flex-1 px-3 py-1.5 text-xs outline-none bg-transparent font-mono"
+                                    />
+                                    <span className="px-2.5 py-1.5 bg-stone-200/70 border-l border-gray-200 text-xs text-stone-600 font-mono">
+                                        @{schoolDomain}
+                                    </span>
                                 </div>
-                            );
-                        })}
-                    </div>
-
-                    {selected && (
-                        <div className="p-3.5 rounded-xl bg-teal-50/70 border border-teal-200 space-y-2.5">
-                            <p className="text-xs font-semibold text-teal-950">
-                                Link <strong>{selected.full_name}</strong> to family account:
-                            </p>
-                            <div className="grid grid-cols-2 gap-2.5">
-                                <div>
-                                    <label className="text-[10px] font-semibold text-stone-600 block mb-0.5">Relationship</label>
-                                    <select
-                                        value={relationship}
-                                        onChange={e => setRelationship(e.target.value)}
-                                        className="clay-input w-full text-xs py-1 bg-white"
-                                    >
-                                        <option value="Son">Son</option>
-                                        <option value="Daughter">Daughter</option>
-                                        <option value="Child">Child</option>
-                                        <option value="Ward">Ward</option>
-                                        <option value="Mother">Mother</option>
-                                        <option value="Father">Father</option>
-                                        <option value="Legal Guardian">Legal Guardian</option>
-                                        <option value="Parent">Parent</option>
-                                    </select>
-                                </div>
-                                <div className="flex items-center pt-3.5">
-                                    <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={isPrimary}
-                                            onChange={e => setIsPrimary(e.target.checked)}
-                                            className="w-3.5 h-3.5 accent-primary"
-                                        />
-                                        <span>Primary Child</span>
-                                    </label>
-                                </div>
-                            </div>
+                            ) : (
+                                <input
+                                    type="email"
+                                    value={newStudentEmailLocal}
+                                    onChange={e => setNewStudentEmailLocal(e.target.value)}
+                                    placeholder="student@example.com"
+                                    className="clay-input w-full text-xs bg-stone-50"
+                                />
+                            )}
                         </div>
-                    )}
-                </div>
 
-                <div className="flex justify-end gap-2 pt-2">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={busy}
-                        className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        disabled={!selected || busy}
-                        onClick={onLink}
-                        className="px-4 py-2 text-xs font-bold rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                        {busy ? 'Linking Student…' : 'Confirm Link'}
-                    </button>
-                </div>
+                        <div>
+                            <label className="text-xs font-semibold text-stone-700 block mb-1">
+                                Temporary Password <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                                type="password"
+                                value={newStudentPassword}
+                                onChange={e => setNewStudentPassword(e.target.value)}
+                                placeholder="Min 6 characters"
+                                className="clay-input w-full text-xs bg-stone-50"
+                            />
+                        </div>
+
+                        <p className="text-[11px] text-stone-500 italic">
+                            The student account will be created and immediately connected to this family account with no duplicate logins.
+                        </p>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                disabled={creatingBusy}
+                                className="px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!newStudentName.trim() || !newStudentEmailLocal.trim() || newStudentPassword.length < 6 || creatingBusy}
+                                onClick={onCreateAndLink}
+                                className="px-4 py-2 text-xs font-bold rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                            >
+                                {creatingBusy ? 'Creating Student…' : 'Create & Link Student'}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -998,6 +1128,12 @@ const UserDrawer: React.FC<{
     const [newLinkIsPrimary, setNewLinkIsPrimary] = useState(false);
     const [linkingStudentBusy, setLinkingStudentBusy] = useState(false);
 
+    // Phase 12: Create new student & link state
+    const [newStudentName, setNewStudentName] = useState('');
+    const [newStudentEmailLocal, setNewStudentEmailLocal] = useState('');
+    const [newStudentPassword, setNewStudentPassword] = useState('');
+    const [creatingStudentBusy, setCreatingStudentBusy] = useState(false);
+
     // Teacher access workflow state
     const [addTeacherModalOpen, setAddTeacherModalOpen] = useState(false);
     const [newStaffPersonName, setNewStaffPersonName] = useState('');
@@ -1350,7 +1486,7 @@ const UserDrawer: React.FC<{
         }
     };
 
-    // Handle Link Student
+    // Handle Link Student (Phase 12 Path 1: Link Existing Student)
     const handleExecuteLinkStudent = async () => {
         if (!user || !selectedStudentCandidate) return;
         const targetSchool = editSchool || user.school_id;
@@ -1373,6 +1509,10 @@ const UserDrawer: React.FC<{
             setSelectedStudentCandidate(null);
             setStudentSearchQuery('');
             fetchFamilyLinks(user.id);
+            if (!additionalRoles.includes('parent') && editRole !== 'parent') {
+                setAdditionalRoles(prev => [...prev, 'parent']);
+            }
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
             onSaved();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Failed to link student';
@@ -1380,6 +1520,59 @@ const UserDrawer: React.FC<{
             toast.error(msg);
         } finally {
             setLinkingStudentBusy(false);
+        }
+    };
+
+    // Phase 12 Path 2: Create New Student & Link to Family
+    const handleCreateAndLinkStudent = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        const finalEmail = editLockedDomain
+            ? `${newStudentEmailLocal.trim().toLowerCase()}@${editLockedDomain}`
+            : newStudentEmailLocal.trim().toLowerCase();
+
+        if (!newStudentName.trim() || !finalEmail || newStudentPassword.length < 6) {
+            toast.error('Student name, login email, and a password of at least 6 characters are required.');
+            return;
+        }
+
+        setCreatingStudentBusy(true);
+        try {
+            await supabase.auth.refreshSession();
+
+            const body: Record<string, unknown> = {
+                email: finalEmail,
+                password: newStudentPassword,
+                fullName: newStudentName.trim(),
+                role: 'student',
+                schoolId: targetSchool,
+                guardianId: user.id,
+                guardianRelationship: newLinkRelationship,
+                isPrimaryGuardian: newLinkIsPrimary,
+            };
+
+            const { data: fnData, error: fnError } = await supabase.functions.invoke('create_tenant_admin', { body });
+            if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to create student'));
+            if (fnData?.error) throw new Error(fnData.error);
+
+            toast.success(`Student "${newStudentName.trim()}" created and linked to ${user.full_name || 'family account'}!`);
+            setLinkStudentModalOpen(false);
+            setNewStudentName('');
+            setNewStudentEmailLocal('');
+            setNewStudentPassword('');
+            fetchFamilyLinks(user.id);
+            if (!additionalRoles.includes('parent') && editRole !== 'parent') {
+                setAdditionalRoles(prev => [...prev, 'parent']);
+            }
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
+            onSaved();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to create and link student';
+            toast.error(msg);
+        } finally {
+            setCreatingStudentBusy(false);
         }
     };
 
@@ -1940,12 +2133,15 @@ const UserDrawer: React.FC<{
                                             onClick={() => {
                                                 setSelectedStudentCandidate(null);
                                                 setStudentSearchQuery('');
+                                                setNewStudentName('');
+                                                setNewStudentEmailLocal('');
+                                                setNewStudentPassword('');
                                                 setLinkStudentModalOpen(true);
                                             }}
-                                            className="text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                                            className="text-xs font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 transition-colors"
                                         >
                                             <Plus className="w-3.5 h-3.5" />
-                                            Link Existing Student
+                                            Add Child
                                         </button>
                                     </div>
 
@@ -2305,21 +2501,30 @@ const UserDrawer: React.FC<{
                         busy={updatingRelBusy}
                     />
 
-                    <LinkStudentModal
+                    <AddChildModal
                         isOpen={linkStudentModalOpen}
                         onClose={() => setLinkStudentModalOpen(false)}
+                        relationship={newLinkRelationship}
+                        setRelationship={setNewLinkRelationship}
+                        isPrimary={newLinkIsPrimary}
+                        setIsPrimary={setNewLinkIsPrimary}
                         searchQuery={studentSearchQuery}
                         setSearchQuery={setStudentSearchQuery}
                         searching={searchingStudents}
                         candidates={studentCandidates}
                         selected={selectedStudentCandidate}
                         setSelected={setSelectedStudentCandidate}
-                        relationship={newLinkRelationship}
-                        setRelationship={setNewLinkRelationship}
-                        isPrimary={newLinkIsPrimary}
-                        setIsPrimary={setNewLinkIsPrimary}
-                        onLink={handleExecuteLinkStudent}
-                        busy={linkingStudentBusy}
+                        onLinkExisting={handleExecuteLinkStudent}
+                        linkingBusy={linkingStudentBusy}
+                        schoolDomain={editLockedDomain}
+                        newStudentName={newStudentName}
+                        setNewStudentName={setNewStudentName}
+                        newStudentEmailLocal={newStudentEmailLocal}
+                        setNewStudentEmailLocal={setNewStudentEmailLocal}
+                        newStudentPassword={newStudentPassword}
+                        setNewStudentPassword={setNewStudentPassword}
+                        onCreateAndLink={handleCreateAndLinkStudent}
+                        creatingBusy={creatingStudentBusy}
                     />
 
                     <AddTeacherModal

@@ -1709,7 +1709,7 @@ Do not guess and delete automatically.
 
 ---
 
-# PHASE 12 — ADD ANOTHER CHILD
+# PHASE 12 — ADD ANOTHER CHILD [COMPLETED]
 
 Admin/Superadmin should have:
 
@@ -1720,6 +1720,13 @@ Add Child
 ```
 
 with two paths.
+
+* **Status**: Fully implemented, hardened, and verified.
+* **Path 1: Link Existing Student**: Secure search filtered strictly to tenant school using student name, admission/login ID, and class context. Enforces primary status rotation and reactivates inactive links (`was_reactivated = true`).
+* **Path 2: Create New Student**: Canonical student creation workflow through `create_tenant_admin` edge function with school domain suffix, automatic profile insertion, enrollment handling, and atomic linking to the existing guardian without creating duplicate family logins.
+* **One Family Login**: Single family account seamlessly holds Child A, Child B, and Child C with primary designation and relationship metadata.
+* **Audit**: Canonical audit row logged to `public.admin_action_audit` with `actor_role`, `target_user_id`, `school_id`, and full relationship metadata.
+
 
 ## Link Existing Student
 

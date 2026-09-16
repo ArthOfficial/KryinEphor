@@ -340,11 +340,45 @@ Deno.serve(async (req: Request) => {
                         const existingRoles = Array.isArray(guardian.roles) && guardian.roles.length > 0
                             ? guardian.roles
                             : [guardian.role];
-                        if (!existingRoles.includes('parent')) {
-                            await supabaseAdmin.from('profiles').update({
-                                roles: [...existingRoles, 'parent']
-                            }).eq('id', guardian.id);
+                        const updatedRoles = existingRoles.includes('parent') ? existingRoles : [...existingRoles, 'parent'];
+                        await supabaseAdmin.from('profiles').update({
+                            roles: updatedRoles,
+                            is_active: true,
+                        }).eq('id', guardian.id);
+
+                        // Ensure parent role is recorded in public.user_roles
+                        await supabaseAdmin.from('user_roles').upsert({
+                            user_id: guardian.id,
+                            role: 'parent'
+                        }, { onConflict: 'user_id,role' });
+
+                        // If primary guardian was selected, demote any other active children of this guardian atomically
+                        if (payload.isPrimaryGuardian !== false) {
+                            await supabaseAdmin
+                                .from('parent_student')
+                                .update({ is_primary: false })
+                                .eq('parent_id', guardian.id)
+                                .eq('school_id', schoolId)
+                                .neq('student_id', userData.user.id)
+                                .eq('is_primary', true);
                         }
+
+                        // Canonical audit entry in admin_action_audit
+                        await supabaseAdmin.from('admin_action_audit').insert({
+                            actor_id: caller.id,
+                            actor_role: callerProfile.role,
+                            school_id: schoolId,
+                            target_user_id: guardian.id,
+                            action: 'link_student_guardian',
+                            detail: {
+                                parent_id: guardian.id,
+                                student_id: userData.user.id,
+                                student_name: fullName,
+                                relationship: payload.guardianRelationship || 'parent',
+                                is_primary: payload.isPrimaryGuardian !== false,
+                                created_new_student: true
+                            }
+                        });
                     }
                 }
             }
