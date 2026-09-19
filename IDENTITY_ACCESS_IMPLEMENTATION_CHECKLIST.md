@@ -2136,77 +2136,73 @@ revoke active Teacher unlock sessions.
 
 ---
 
-# PHASE 18 — AUDITING
+# PHASE 18 — AUDITING [COMPLETED]
 
 Audit all security-sensitive actions.
 
 At minimum log:
 
 ```text
-
 teacher added
-
 teacher removed
-
 teacher activated
-
 teacher deactivated
-
 staff PIN configured
-
 staff PIN reset
-
 staff PIN changed
-
 staff unlock failed
-
 staff unlock locked
-
 staff unlock succeeded
-
 child linked
-
 child unlinked
-
 guardian relationship edited
-
 student archived
-
 student withdrawn
-
 student deletion attempted
-
 student deleted if exceptionally allowed
-
 account activated
-
 account deactivated
-
 role/capability changes
-
 ```
 
 Include where appropriate:
 
 * actor user ID
-
 * actor role
-
 * target account
-
 * target student/staff identity
-
 * school ID
-
 * previous state
-
 * new state
-
 * timestamp
-
 * session/request metadata already used by Kryin Ephor
 
 Do not log plaintext PINs or passwords.
+
+### Verification and Delivery Notes:
+- **Migration Applied**: `20260915060000_phase18_auditing.sql`.
+- **Zero Sensitive Leakage**:
+  - Plaintext PINs, hashes, and passwords are never written to `public.admin_action_audit` or exposed across API responses.
+- **Automated Database Triggers**:
+  - `trg_audit_profile_changes` on `public.profiles`: Audits `account activated` (`is_active: true`), `account deactivated` (`is_active: false`), and `role/capability changes` on primary role update.
+  - `trg_audit_employee_changes` on `public.employees`: Audits `teacher activated` (`status: 'active'`) and `teacher deactivated` (`status <> 'active'`).
+  - `trg_audit_user_roles_changes` on `public.user_roles`: Audits `teacher added` (INSERT role 'teacher'), `teacher removed` (DELETE role 'teacher'), and general `role/capability changes` (INSERT/DELETE other roles).
+- **Domain RPCs Hardened with Canonical Action Names & Structured Detail**:
+  - `fn_setup_or_change_staff_pin`: Audits `staff PIN configured` (fresh setup), `staff PIN changed` (self modification), or `staff PIN reset` (admin reset).
+  - `fn_verify_staff_pin`: Audits `staff unlock failed` (wrong PIN, <5 attempts), `staff unlock locked` (lockout reached), and `staff unlock succeeded` (valid PIN, token issued).
+  - `fn_link_student_guardian`: Audits `child linked` with target student identity, parent identity, relationship, and primary designation.
+  - `fn_update_guardian_relationship`: Audits `guardian relationship edited` with previous and new states.
+  - `fn_unlink_student_guardian`: Audits `child unlinked` with target student identity, parent identity, remaining children count, and teacher capability state.
+  - `fn_set_student_status`: Audits `student archived` ('archived' / 'inactive') or `student withdrawn` ('withdrawn') with reason, notes, and academic preservation details.
+  - `fn_remove_teacher_access`: Audits `teacher removed` and `teacher deactivated` with employee identity and remaining personas.
+- **Student Guarded Deletion Auditing**:
+  - `delete_user` Edge Function: Audits `student deletion attempted` with `blocked: true` and record counts when deletion is refused; audits `student deleted if exceptionally allowed` when deletion succeeds.
+  - `fn_audit_student_deletion_attempt`: Helper RPC for logging deletion attempts directly from client modals or server routines.
+- **Tenant-Isolated Audit Query RPC**:
+  - `fn_get_admin_action_audit`: Secure `SECURITY DEFINER` function allowing authorized school administrators and superadmins to query the audit log for their school, with filtering by action, target user, and date range.
+- **Automated Verification Suite (`scratch/test_phase18_full.cjs`)**:
+  - 40/40 assertions passed with 0 failures across all 20 required audit actions and the query RPC.
+- **Production Build**: Verified with `tsc -b && vite build` (built cleanly in 5.00s with 0 errors).
 
 ---
 

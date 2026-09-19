@@ -3334,7 +3334,17 @@ const DeleteUserConfirmModal: React.FC<{
                             _student_id: user.id,
                         });
                         if (!error && data) {
-                            setEligibility(data as { can_delete: boolean; reasons: string[]; summary: string });
+                            const eligResult = data as { can_delete: boolean; reasons: string[]; summary: string };
+                            setEligibility(eligResult);
+                            if (!eligResult.can_delete && user.school_id) {
+                                await supabase.rpc('fn_audit_student_deletion_attempt', {
+                                    _school_id: user.school_id,
+                                    _student_id: user.id,
+                                    _blocked: true,
+                                    _reasons: eligResult.reasons || [],
+                                    _notes: 'Admin opened student deletion confirmation; deletion blocked by academic records check.',
+                                });
+                            }
                         }
                     } catch {
                         // ignore

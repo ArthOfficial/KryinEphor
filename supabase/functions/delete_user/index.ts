@@ -122,6 +122,26 @@ Deno.serve(async (req: Request) => {
             }
             if (eligibility && !eligibility.can_delete) {
                 const reasonsList = (eligibility.reasons as string[] || []).join(", ");
+                
+                // Canonical audit log: student deletion attempted (blocked)
+                await admin.from("admin_action_audit").insert({
+                    actor_id: caller.id,
+                    actor_role: callerProfile.role,
+                    school_id: target.school_id,
+                    target_user_id: targetUserId,
+                    action: "student deletion attempted",
+                    detail: {
+                        blocked: true,
+                        reasons: eligibility.reasons,
+                        total_records: eligibility.total_records,
+                        target_student_identity: targetUserId,
+                        target_name: target.full_name,
+                        target_email: target.email,
+                        school_id: target.school_id,
+                    },
+                    created_at: new Date().toISOString(),
+                });
+
                 return json({
                     error: `Permanent deletion blocked: student has active records (${reasonsList}). To protect academic history, hard deletion is refused. Please mark the student as Withdrawn, Transferred, or Inactive instead.`,
                     eligibility,
@@ -142,11 +162,13 @@ Deno.serve(async (req: Request) => {
             actor_role: callerProfile.role,
             school_id: target.school_id,
             target_user_id: targetUserId,
-            action: target.role === "student" ? "student_hard_deleted" : "user_hard_deleted",
+            action: target.role === "student" ? "student deleted if exceptionally allowed" : "user_hard_deleted",
             detail: {
                 target_name: target.full_name,
                 target_email: target.email,
                 target_role: target.role,
+                target_student_identity: target.role === "student" ? targetUserId : undefined,
+                exceptionally_allowed: target.role === "student" ? true : undefined,
                 school_id: target.school_id,
             },
             created_at: new Date().toISOString(),
