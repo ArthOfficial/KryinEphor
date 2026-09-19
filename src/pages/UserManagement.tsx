@@ -89,6 +89,8 @@ interface LinkedStudentTarget {
     relationship: string;
     is_primary: boolean;
     status?: string;
+    student_status?: string | null;
+    is_active?: boolean;
 }
 
 /* 1. Unlink Child Confirmation Modal */
@@ -1297,6 +1299,7 @@ const UserDrawer: React.FC<{
     const [editStaffPersonName, setEditStaffPersonName] = useState('');
     const [editDesignation, setEditDesignation] = useState('');
     const [editDepartment, setEditDepartment] = useState('');
+    const [employeeStatus, setEmployeeStatus] = useState<string | null>(null);
 
     // Family links state
     interface LinkedGuardian {
@@ -1308,6 +1311,7 @@ const UserDrawer: React.FC<{
         relationship: string;
         is_primary: boolean;
         is_staff: boolean;
+        is_active?: boolean;
         staff_person_name: string | null;
         designation: string | null;
     }
@@ -1414,7 +1418,7 @@ const UserDrawer: React.FC<{
     const [studentDepartureNotes, setStudentDepartureNotes] = useState('');
     const [updatingStudentStatus, setUpdatingStudentStatus] = useState(false);
 
-    const hasTeacherAccess = editRole === 'teacher' || additionalRoles.includes('teacher');
+    const hasTeacherAccess = editRole === 'teacher' || additionalRoles.includes('teacher') || employeeStatus === 'active';
 
     const fetchStaffPinStatus = async (schoolId: string, userId: string) => {
         try {
@@ -1522,7 +1526,7 @@ const UserDrawer: React.FC<{
             (async () => {
                 const { data } = await supabase
                     .from('employees')
-                    .select('staff_person_name, designation, department')
+                    .select('staff_person_name, designation, department, status')
                     .eq('profile_id', user.id)
                     .is('deleted_at', null)
                     .maybeSingle();
@@ -1530,6 +1534,9 @@ const UserDrawer: React.FC<{
                     setEditStaffPersonName(data.staff_person_name || '');
                     setEditDesignation(data.designation || '');
                     setEditDepartment(data.department || '');
+                    setEmployeeStatus(data.status || 'active');
+                } else {
+                    setEmployeeStatus(null);
                 }
             })();
 
@@ -2232,17 +2239,30 @@ const UserDrawer: React.FC<{
                                 </div>
                                 <p className="text-xs text-muted truncate">{user.email}</p>
                                 <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                    {(user.roles && user.roles.length > 0 ? user.roles : [user.role]).map(r => {
-                                        const rStyle = getRoleStyle(r);
-                                        return (
-                                            <span
-                                                key={r}
-                                                className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest ${rStyle.bg} ${rStyle.color}`}
-                                            >
-                                                {rStyle.label}
-                                            </span>
-                                        );
-                                    })}
+                                    {(editRole === 'superadmin' || user.role === 'superadmin') && (
+                                        <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest bg-purple-100 text-purple-800 border border-purple-200">
+                                            Superadmin
+                                        </span>
+                                    )}
+                                    {(editRole === 'admin' || user.role === 'admin' || additionalRoles.includes('admin')) && (
+                                        <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200">
+                                            School Admin
+                                        </span>
+                                    )}
+                                    {(user.role === 'parent' || editRole === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0) ? (
+                                        <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                            Family: Parent
+                                        </span>
+                                    ) : (user.role === 'student' || editRole === 'student') ? (
+                                        <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                            Student: {studentStatus ? (studentStatus.charAt(0).toUpperCase() + studentStatus.slice(1)) : 'Active'}
+                                        </span>
+                                    ) : null}
+                                    {hasTeacherAccess && (
+                                        <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest bg-sky-100 text-sky-800 border border-sky-200">
+                                            Staff: Teacher
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -2264,7 +2284,7 @@ const UserDrawer: React.FC<{
                                 <div className="flex items-center justify-between pb-2 border-b border-gray-100">
                                     <div className="flex items-center gap-2">
                                         <UserCheck className="w-4 h-4 text-primary" />
-                                        <span className="text-xs font-bold uppercase tracking-wider text-foreground">Account Login & Roles</span>
+                                        <span className="text-xs font-bold uppercase tracking-wider text-foreground">Account Login & Credentials</span>
                                     </div>
                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                                         {isActive ? 'Active' : 'Disabled'}
@@ -2274,7 +2294,7 @@ const UserDrawer: React.FC<{
                                 {/* Email Address */}
                                 <div>
                                     <label className="text-xs font-semibold text-muted block mb-1">
-                                        <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Email Address</span>
+                                        <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Email / Login ID</span>
                                     </label>
                                     {editLockedDomain ? (
                                         <div className={`flex items-stretch rounded-xl overflow-hidden border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-primary/20 ${isProtected ? 'opacity-60' : ''}`}>
@@ -2307,23 +2327,31 @@ const UserDrawer: React.FC<{
                                     )}
                                 </div>
 
-                                {/* Primary Role + School Assignment */}
+                                {/* Administrative Role + School Assignment */}
                                 <div className="grid grid-cols-2 gap-2.5">
                                     <div>
-                                        <label className="text-xs font-semibold text-muted block mb-1">Primary Role</label>
-                                        <select
-                                            value={editRole}
-                                            onChange={e => setEditRole(e.target.value)}
-                                            disabled={isProtected}
-                                            className="clay-input w-full text-xs disabled:opacity-60 disabled:cursor-not-allowed"
-                                        >
-                                            <option value="">Select Role</option>
-                                            {Object.keys(ROLE_CONFIG)
-                                                .filter(r => isSuperadmin || r !== 'superadmin')
-                                                .map(r => (
-                                                    <option key={r} value={r}>{ROLE_CONFIG[r].label}</option>
-                                                ))}
-                                        </select>
+                                        <label className="text-xs font-semibold text-muted block mb-1">Administrative Access</label>
+                                        {(user.role === 'student' || editRole === 'student') ? (
+                                            <div className="clay-input w-full text-xs bg-stone-50 text-stone-600 flex items-center gap-1 truncate font-medium">
+                                                <span>Student (No Admin Access)</span>
+                                            </div>
+                                        ) : (
+                                            <select
+                                                value={editRole === 'superadmin' ? 'superadmin' : editRole === 'admin' ? 'admin' : 'member'}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === 'superadmin') setEditRole('superadmin');
+                                                    else if (val === 'admin') setEditRole('admin');
+                                                    else setEditRole(hasTeacherAccess ? 'teacher' : 'parent');
+                                                }}
+                                                disabled={isProtected || (!isSuperadmin && editRole === 'superadmin')}
+                                                className="clay-input w-full text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                                            >
+                                                {isSuperadmin && <option value="superadmin">Root Superadmin</option>}
+                                                <option value="admin">School Administrator</option>
+                                                <option value="member">Standard Account (No Admin Dashboard)</option>
+                                            </select>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="text-xs font-semibold text-muted block mb-1">
@@ -2349,48 +2377,21 @@ const UserDrawer: React.FC<{
                                     </div>
                                 </div>
 
-                                {/* Additional Roles — TEACHER is filtered out so it's managed via Staff Access only! */}
-                                <div>
-                                    <label className="text-xs font-semibold text-muted block mb-1.5">
-                                        <span className="inline-flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Additional Roles</span>
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                        {Object.keys(ROLE_CONFIG)
-                                            .filter(r => isSuperadmin || r !== 'superadmin')
-                                            .filter(r => r !== editRole)
-                                            .filter(r => r !== 'teacher') // Excluded: managed intentionally via Staff Access card
-                                            .map(r => {
-                                                const checked = additionalRoles.includes(r);
-                                                return (
-                                                    <label
-                                                        key={r}
-                                                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${checked
-                                                            ? `${ROLE_CONFIG[r].bg} ${ROLE_CONFIG[r].color} border-transparent`
-                                                            : 'bg-white border-gray-200 text-stone-600 hover:bg-stone-50'
-                                                            } ${isProtected ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            className="w-3.5 h-3.5 accent-current"
-                                                            checked={checked}
-                                                            disabled={isProtected}
-                                                            onChange={e => {
-                                                                setAdditionalRoles(prev =>
-                                                                    e.target.checked
-                                                                        ? [...prev, r]
-                                                                        : prev.filter(x => x !== r)
-                                                                );
-                                                            }}
-                                                        />
-                                                        {ROLE_CONFIG[r].label}
-                                                    </label>
-                                                );
-                                            })}
+                                {(user.role === 'student' || editRole === 'student') ? (
+                                    <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/90 text-xs text-emerald-950 space-y-1">
+                                        <div className="flex items-center gap-1.5 font-bold">
+                                            <GraduationCap className="w-4 h-4 text-emerald-700" />
+                                            <span>Enrolled Student Identity</span>
+                                        </div>
+                                        <p className="text-[11px] text-emerald-800/90 leading-relaxed">
+                                            This profile is an enrolled student. School administration and staff privileges cannot be assigned to student profiles.
+                                        </p>
                                     </div>
-                                    <p className="text-[10px] text-muted mt-1">
-                                        Educator/Teacher access is managed intentionally in the Staff Access section below.
+                                ) : (
+                                    <p className="text-[11px] text-muted leading-relaxed">
+                                        Family access and educator staff memberships are managed safely and intentionally in the dedicated sections below.
                                     </p>
-                                </div>
+                                )}
                             </div>
 
                             {/* ══════════════════════════════════════════════════ */}
@@ -2493,8 +2494,8 @@ const UserDrawer: React.FC<{
                                                 : 'bg-stone-100 text-stone-600'
                                         }`}>
                                             {(user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0)
-                                                ? 'Parent Access: Active'
-                                                : 'Parent Access: Inactive'}
+                                                ? 'Parent: Active'
+                                                : 'Parent: Inactive'}
                                         </span>
                                     </div>
                                 </div>
@@ -2515,6 +2516,10 @@ const UserDrawer: React.FC<{
                                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                                 <span className="text-xs font-bold text-foreground truncate">
                                                                     {g.staff_person_name || g.full_name}
+                                                                </span>
+                                                                <span className="text-xs text-stone-400 font-semibold">—</span>
+                                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${g.is_active !== false ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
+                                                                    {g.is_active !== false ? 'Active' : 'Inactive'}
                                                                 </span>
                                                                 <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded capitalize">
                                                                     {g.relationship}
@@ -2609,88 +2614,102 @@ const UserDrawer: React.FC<{
                                         </div>
                                     ) : (
                                         <div className="space-y-2">
-                                            {linkedStudents.map(s => (
-                                                <div
-                                                    key={s.link_id}
-                                                    className={`p-3 rounded-xl border transition-all space-y-2 ${
-                                                        s.is_primary
-                                                            ? 'bg-purple-50/40 border-purple-200/90 shadow-2xs'
-                                                            : 'bg-stone-50/80 border-stone-200'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <div className="min-w-0">
-                                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                                <span className="text-xs font-bold text-foreground truncate">
-                                                                    🎓 {s.full_name}
-                                                                </span>
-                                                                {s.is_primary && (
-                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                                        Primary Child
+                                            {linkedStudents.map(s => {
+                                                const studentStatusDisplay = s.student_status || (s.is_active === false ? 'inactive' : 'active');
+                                                const statusStyle = studentStatusDisplay === 'active'
+                                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                                    : studentStatusDisplay === 'withdrawn' || studentStatusDisplay === 'transferred'
+                                                    ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                                    : studentStatusDisplay === 'graduated'
+                                                    ? 'bg-blue-100 text-blue-800 border-blue-200'
+                                                    : 'bg-stone-100 text-stone-700 border-stone-200';
+                                                return (
+                                                    <div
+                                                        key={s.link_id}
+                                                        className={`p-3 rounded-xl border transition-all space-y-2 ${
+                                                            s.is_primary
+                                                                ? 'bg-purple-50/40 border-purple-200/90 shadow-2xs'
+                                                                : 'bg-stone-50/80 border-stone-200'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span className="text-xs font-bold text-foreground truncate">
+                                                                        🎓 {s.full_name}
                                                                     </span>
-                                                                )}
-                                                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded capitalize">
-                                                                    {s.relationship}
-                                                                </span>
+                                                                    <span className="text-xs text-stone-400 font-semibold">—</span>
+                                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border capitalize ${statusStyle}`}>
+                                                                        {studentStatusDisplay}
+                                                                    </span>
+                                                                    {s.is_primary && (
+                                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                                            Primary Child
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded capitalize">
+                                                                        {s.relationship}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-[11px] text-stone-600 mt-0.5">
+                                                                    {s.class_name ? `Class: ${s.class_name}${s.section_name ? ` - ${s.section_name}` : ''}` : 'Class: Not enrolled'}
+                                                                    {s.login_id ? ` • Adm ID: ${s.login_id}` : ''}
+                                                                </p>
                                                             </div>
-                                                            <p className="text-[11px] text-stone-600 mt-0.5">
-                                                                {s.class_name ? `Class: ${s.class_name}${s.section_name ? ` - ${s.section_name}` : ''}` : 'Class: Not enrolled'}
-                                                                {s.login_id ? ` • Adm ID: ${s.login_id}` : ''}
-                                                            </p>
-                                                        </div>
 
-                                                        {/* Actions per child */}
-                                                        <div className="flex items-center gap-1 flex-shrink-0">
-                                                            {!s.is_primary && (
+                                                            {/* Actions per child */}
+                                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                                                {!s.is_primary && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleSetPrimary(s)}
+                                                                        title="Make primary child"
+                                                                        className="px-2 py-1 text-[10px] font-bold rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                                    >
+                                                                        Set Primary
+                                                                    </button>
+                                                                )}
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => handleSetPrimary(s)}
-                                                                    title="Make primary child"
-                                                                    className="px-2 py-1 text-[10px] font-bold rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
-                                                                >
-                                                                    Set Primary
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setEditingRelationshipLink({
-                                                                        link_id: s.link_id,
-                                                                        target_name: s.full_name,
-                                                                        target_role_label: 'child',
-                                                                        relationship: s.relationship,
-                                                                        is_primary: s.is_primary,
-                                                                    });
-                                                                    setEditRelVal(s.relationship);
-                                                                    setEditPrimaryVal(s.is_primary);
-                                                                }}
-                                                                title="Edit relationship metadata"
-                                                                className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
-                                                            >
-                                                                <Settings2 className="w-3.5 h-3.5" />
-                                                            </button>
-                                                            {onSelectUser && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleOpenCanonicalProfile(s.student_id)}
-                                                                    title="Open canonical student profile (edit student identity, enrollment, etc.)"
+                                                                    onClick={() => {
+                                                                        setEditingRelationshipLink({
+                                                                            link_id: s.link_id,
+                                                                            target_name: s.full_name,
+                                                                            target_role_label: 'child',
+                                                                            relationship: s.relationship,
+                                                                            is_primary: s.is_primary,
+                                                                        });
+                                                                        setEditRelVal(s.relationship);
+                                                                        setEditPrimaryVal(s.is_primary);
+                                                                    }}
+                                                                    title="Edit relationship metadata"
                                                                     className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
                                                                 >
-                                                                    <ExternalLink className="w-3.5 h-3.5" />
+                                                                    <Settings2 className="w-3.5 h-3.5" />
                                                                 </button>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setUnlinkingStudent(s)}
-                                                                title="Unlink child from family"
-                                                                className="p-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
-                                                            >
-                                                                <UserMinus className="w-3.5 h-3.5" />
-                                                            </button>
+                                                                {onSelectUser && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleOpenCanonicalProfile(s.student_id)}
+                                                                        title="Open canonical student profile (edit student identity, enrollment, etc.)"
+                                                                        className="p-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-100 text-stone-700 transition-colors"
+                                                                    >
+                                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setUnlinkingStudent(s)}
+                                                                    title="Unlink child from family"
+                                                                    className="p-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
+                                                                >
+                                                                    <UserMinus className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -2706,9 +2725,17 @@ const UserDrawer: React.FC<{
                                         <span className="text-xs font-bold uppercase tracking-wider text-foreground">Staff Access</span>
                                     </div>
                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                        hasTeacherAccess ? 'bg-sky-100 text-sky-800 border border-sky-200' : 'bg-stone-100 text-stone-600'
+                                        hasTeacherAccess
+                                            ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                                            : employeeStatus === 'inactive'
+                                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                            : 'bg-stone-100 text-stone-600'
                                     }`}>
-                                        {hasTeacherAccess ? 'Teacher Access: Active' : 'No Staff Access'}
+                                        {hasTeacherAccess
+                                            ? 'Teacher: Active'
+                                            : employeeStatus === 'inactive'
+                                            ? 'Teacher: Inactive'
+                                            : 'Teacher: Unconfigured'}
                                     </span>
                                 </div>
 
@@ -4625,7 +4652,13 @@ const AddUserModal: React.FC<{
 /* ─── USER ROW ─────────────────────────────────────────── */
 const UserRow: React.FC<{ user: User; onSelect: (u: User) => void; idx: number }> = ({ user, onSelect, idx }) => {
     const { user: currentUser } = useAuth();
-    const displayRoles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
+    const displayRoles = useMemo(() => {
+        let roles = user.roles && user.roles.length > 0 ? user.roles : [user.role];
+        if (user.role === 'student') {
+            roles = roles.filter(r => r !== 'teacher');
+        }
+        return roles;
+    }, [user.roles, user.role]);
     return (
         <motion.div
             initial={{ opacity: 0, y: 8 }}

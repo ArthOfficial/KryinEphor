@@ -2206,7 +2206,7 @@ Do not log plaintext PINs or passwords.
 
 ---
 
-# PHASE 19 — USER MANAGEMENT UX
+# PHASE 19 — USER MANAGEMENT UX [COMPLETED]
 
 Do not expose technical internal complexity to ordinary school staff.
 
@@ -2259,6 +2259,28 @@ Teacher creation is an intentional workflow.
 Student linking is an intentional workflow.
 
 Guardian management is an intentional workflow.
+
+### Implementation Deliverables:
+- **Database & RPC Migration (`supabase/migrations/20260915070000_phase19_user_management_ux.sql`)**:
+  - Enhanced `fn_get_profile_family_links` to return `student_status` and `is_active` for linked students and `is_active` for linked guardians.
+  - Applied and recorded in `supabase_migrations.schema_migrations`.
+- **Domain-Oriented Family Access Card**:
+  - Displays `Parent: Active` (or `Parent: Inactive`).
+  - Lists linked students cleanly as `🎓 {s.full_name} — {studentStatus}` (e.g. `Aarav — Active`, `Anaya — Active`) with color-coded enrollment status badges (`Active`, `Withdrawn`, `Graduated`, `Inactive`), class and section, admission ID, relationship, and primary child badge.
+  - Dedicated intentional actions: `Set Primary`, `Edit Relationship`, `Open Student Profile`, `Unlink Child`, and `+ Add Child`.
+- **Domain-Oriented Staff Access Card**:
+  - Displays `Teacher: Active` (or `Teacher: Inactive` / `Teacher: Unconfigured`).
+  - Displays canonical adult educator identity (`{staff_name} — Teacher`), designation, department, and `Active Staff` badge.
+  - Dedicated intentional actions: `Edit Staff Details`, `Disable Teacher Access`, and `+ Add Teacher Access`.
+- **Eliminated Giant Role Checkbox List**:
+  - Removed dangerous multi-select role checkboxes in Account credentials card.
+  - Protected student accounts: students cannot have administrative or staff privileges assigned via accidental checkbox clicks.
+  - Explicit administrative role selector (`School Admin`, `Superadmin`, `Standard Member`) for adult accounts.
+- **Sanitized List Badges in `UserRow`**:
+  - Student accounts filtered so legacy `teacher` role tags never appear on student profiles in User Management list.
+- **Automated Verification Suite (`scratch/test_phase19_ux.cjs`)**:
+  - Verified `fn_get_profile_family_links` returns `student_status` and `is_active` on live remote Supabase pooler.
+- **Production Build**: Verified with `tsc -b && vite build` (5.18s with 0 errors).
 
 ---
 
