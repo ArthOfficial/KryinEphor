@@ -27,10 +27,11 @@ interface ClassRow {
 }
 
 const Classes: React.FC = () => {
-    const { user, role } = useAuth();
+    const { user, roles, role } = useAuth();
     const schoolId = user?.schoolId ?? null;
-    const canEdit = role === 'admin' || role === 'superadmin';
-    const canQuickCreate = role === 'admin';
+    const isElevatedAdmin = roles.includes('admin') || roles.includes('superadmin');
+    const canEdit = isElevatedAdmin;
+    const canQuickCreate = roles.includes('admin');
     const navigate = useNavigate();
 
     const [search, setSearch] = useState('');
@@ -73,7 +74,8 @@ const Classes: React.FC = () => {
                 .is('deleted_at', null)
                 .order('grade_level', { ascending: true })
                 .order('section', { ascending: true });
-            if (role === 'teacher') query = query.eq('teacher_id', user!.id);
+            // Phase 15: Authoritative role check - non-admins are strictly scoped to their assigned classes
+            if (!isElevatedAdmin || role === 'teacher') query = query.eq('teacher_id', user!.id);
             const { data, error } = await query;
             if (error) throw error;
             return (data ?? []) as unknown as ClassRow[];

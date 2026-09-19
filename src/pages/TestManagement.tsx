@@ -6,8 +6,28 @@ import { supabase } from '../lib/supabase';
 
 type Item = { id: string; name: string; class_id?: string | null }; type SelectedSubject = { id: string; chapter: string };
 export default function TestManagement() {
-  const { user, role } = useAuth(); const [classes, setClasses] = useState<Item[]>([]); const [subjects, setSubjects] = useState<Item[]>([]); const [classId, setClassId] = useState(''); const [selected, setSelected] = useState<SelectedSubject[]>([]); const [name, setName] = useState(''); const [date, setDate] = useState(''); const [maxMarks, setMaxMarks] = useState('100'); const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false);
-  useEffect(() => { if (!user?.schoolId) return; let query = supabase.from('classes').select('id,name').eq('school_id', user.schoolId).is('deleted_at', null).order('name'); if (role === 'teacher') query = query.eq('teacher_id', user.id); query.then(({ data }) => setClasses((data ?? []) as Item[])); }, [role, user?.id, user?.schoolId]);
+  const { user, roles, role } = useAuth();
+  const [classes, setClasses] = useState<Item[]>([]);
+  const [subjects, setSubjects] = useState<Item[]>([]);
+  const [classId, setClassId] = useState('');
+  const [selected, setSelected] = useState<SelectedSubject[]>([]);
+  const [name, setName] = useState('');
+  const [date, setDate] = useState('');
+  const [maxMarks, setMaxMarks] = useState('100');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const isElevatedAdmin = roles.includes('admin') || roles.includes('superadmin');
+
+  useEffect(() => {
+    if (!user?.schoolId) return;
+    let query = supabase.from('classes').select('id,name').eq('school_id', user.schoolId).is('deleted_at', null).order('name');
+    // Phase 15: Authoritative role check - non-admins are strictly scoped to their assigned classes
+    if (!isElevatedAdmin || role === 'teacher') {
+      query = query.eq('teacher_id', user.id);
+    }
+    query.then(({ data }) => setClasses((data ?? []) as Item[]));
+  }, [role, roles, isElevatedAdmin, user?.id, user?.schoolId]);
   useEffect(() => { const load = async () => { setSelected([]); if (!classId || !user?.schoolId) return setSubjects([]); const { data } = await supabase.from('subjects').select('id,name,class_id').eq('school_id', user.schoolId).is('deleted_at', null).order('name'); setSubjects(((data ?? []) as Item[]).filter(subject => !subject.class_id || subject.class_id === classId)); }; load(); }, [classId, user?.schoolId]);
   const toggle = (subjectId: string) => setSelected(current => current.some(subject => subject.id === subjectId) ? current.filter(subject => subject.id !== subjectId) : [...current, { id: subjectId, chapter: '' }]);
   const updateChapter = (subjectId: string, chapter: string) => setSelected(current => current.map(subject => subject.id === subjectId ? { ...subject, chapter } : subject));

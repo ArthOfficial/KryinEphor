@@ -6,8 +6,27 @@ import { supabase } from '../lib/supabase';
 
 type ClassItem = { id: string; name: string }; type TestItem = { id: string; name: string; classId: string; className: string }; type SubjectItem = { id: string; subjectId: string; name: string; maxMarks: number }; type Student = { id: string; full_name: string | null; email: string | null };
 export default function MarksEntry() {
-  const { user, role } = useAuth(); const [classes, setClasses] = useState<ClassItem[]>([]); const [tests, setTests] = useState<TestItem[]>([]); const [testId, setTestId] = useState(''); const [subjects, setSubjects] = useState<SubjectItem[]>([]); const [students, setStudents] = useState<Student[]>([]); const [marks, setMarks] = useState<Record<string, string>>({}); const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false);
-  useEffect(() => { if (!user?.schoolId) return; let query = supabase.from('classes').select('id,name').eq('school_id', user.schoolId).is('deleted_at', null).order('name'); if (role === 'teacher') query = query.eq('teacher_id', user.id); query.then(({ data }) => setClasses((data ?? []) as ClassItem[])); }, [role, user?.id, user?.schoolId]);
+  const { user, roles, role } = useAuth();
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [tests, setTests] = useState<TestItem[]>([]);
+  const [testId, setTestId] = useState('');
+  const [subjects, setSubjects] = useState<SubjectItem[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [marks, setMarks] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const isElevatedAdmin = roles.includes('admin') || roles.includes('superadmin');
+
+  useEffect(() => {
+    if (!user?.schoolId) return;
+    let query = supabase.from('classes').select('id,name').eq('school_id', user.schoolId).is('deleted_at', null).order('name');
+    // Phase 15: Authoritative role check - non-admins are strictly scoped to their assigned classes
+    if (!isElevatedAdmin || role === 'teacher') {
+      query = query.eq('teacher_id', user.id);
+    }
+    query.then(({ data }) => setClasses((data ?? []) as ClassItem[]));
+  }, [role, roles, isElevatedAdmin, user?.id, user?.schoolId]);
   useEffect(() => { const load = async () => { if (!user?.schoolId) return; const { data: rows } = await supabase.from('exam_subjects').select('exam_id,class_id').eq('school_id', user.schoolId).is('deleted_at', null); const allowed = new Set(classes.map(item => item.id)); const unique = [...new Map((rows ?? []).filter(row => allowed.has(row.class_id)).map(row => [row.exam_id, row])).values()]; if (!unique.length) return setTests([]); const [{ data: examRows }, { data: classRows }] = await Promise.all([supabase.from('exams').select('id,name').in('id', unique.map(row => row.exam_id)).is('deleted_at', null).order('start_date', { ascending: false }), supabase.from('classes').select('id,name').in('id', unique.map(row => row.class_id))]); const examNames = new Map((examRows ?? []).map(row => [row.id, row.name])); const classNames = new Map((classRows ?? []).map(row => [row.id, row.name])); setTests(unique.filter(row => examNames.has(row.exam_id)).map(row => ({ id: row.exam_id, name: examNames.get(row.exam_id)!, classId: row.class_id, className: classNames.get(row.class_id) || 'Class' }))); }; load(); }, [classes, user?.schoolId]);
   const activeTest = useMemo(() => tests.find(test => test.id === testId), [testId, tests]);
   useEffect(() => { const load = async () => { setSubjects([]); setStudents([]); setMarks({}); if (!activeTest || !user?.schoolId) return; const [{ data: examSubjects }, { data: enrollment }] = await Promise.all([supabase.from('exam_subjects').select('id,subject_id,max_marks').eq('exam_id', activeTest.id).eq('class_id', activeTest.classId).is('deleted_at', null), supabase.from('class_enrollments').select('student_id').eq('class_id', activeTest.classId).is('deleted_at', null)]); const subjectRows = examSubjects ?? []; const ids = subjectRows.map(row => row.subject_id); const studentIds = (enrollment ?? []).map(row => row.student_id); const [{ data: subjectRowsData }, { data: profileRows }, { data: resultRows }] = await Promise.all([ids.length ? supabase.from('subjects').select('id,name').in('id', ids) : Promise.resolve({ data: [] as { id: string; name: string }[] }), studentIds.length ? supabase.from('profiles').select('id,full_name,email').in('id', studentIds).is('deleted_at', null).order('full_name') : Promise.resolve({ data: [] as Student[] }), subjectRows.length ? supabase.from('exam_results').select('id,student_id,exam_subject_id,marks_obtained').in('exam_subject_id', subjectRows.map(row => row.id)).is('deleted_at', null) : Promise.resolve({ data: [] as { id: string; student_id: string; exam_subject_id: string; marks_obtained: number | null }[] })]); const names = new Map(((subjectRowsData ?? []) as { id: string; name: string }[]).map((row: { id: string; name: string }) => [row.id, row.name])); setSubjects(subjectRows.map(row => ({ id: row.id, subjectId: row.subject_id, name: names.get(row.subject_id) || 'Subject', maxMarks: row.max_marks }))); setStudents((profileRows ?? []) as Student[]); setMarks(Object.fromEntries(((resultRows ?? []) as { student_id: string; exam_subject_id: string; marks_obtained: number | null }[]).map(row => [`${row.student_id}:${row.exam_subject_id}`, row.marks_obtained?.toString() || '']))); }; load(); }, [activeTest, user?.schoolId]);

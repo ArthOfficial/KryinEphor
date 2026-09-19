@@ -1884,7 +1884,28 @@ Every merge/link operation must be school-scoped and audited.
 
 ---
 
-# PHASE 15 — ROLE / ROUTE AUTHORIZATION CLEANUP
+# PHASE 15 — ROLE / ROUTE AUTHORIZATION CLEANUP [COMPLETED]
+
+* **Status**: Fully implemented, verified against architecture standards, and compiled into production bundle.
+* **Route Guard Hardening (`src/components/auth/ProtectedRoute.tsx`)**:
+  - `ProtectedRoute` reviewed across all routes (`/marks`, `/manage-tests`, `/attendance`, `/classes`).
+  - Strict enforcement: `roles.includes("teacher")` is **never** assumed to be sufficient for privileged Teacher access.
+  - Privileged educator access requires the 4-part secure staff state:
+    1. `hasTeacherCapability`: `roles.includes("teacher")`
+    2. `hasActiveStaffMembership`: `Boolean(user.schoolId)`
+    3. `staffSessionIsUnlocked`: `isStaffUnlocked === true` (validated against server cryptographic session token via `fn_validate_staff_session`)
+    4. `school matches`: `Boolean(user.schoolId)`
+  - **`StaffLockGate` Component**: Integrated into `ProtectedRoute`. When an educator attempts to access a protected teacher route while staff mode is locked or expired, renders a dedicated lock gate:
+    > "Staff Mode Locked — Privileged educator access requires an active, verified staff session to protect student marks, attendance, and records."
+    - "Unlock Staff Mode" button: launches 6-digit Staff PIN modal. Upon verification, the route unlocks immediately without page refresh.
+    - "Return to Dashboard" button: routes back to `/dashboard`.
+* **Presentation vs Authorization Boundary**:
+  - `activeRole` in localStorage strictly controls client-side presentation (menus, active tab, UI themes) and carries **zero** security authority.
+  - Query scoping in `MarksEntry.tsx`, `TestManagement.tsx`, and `Classes.tsx` derives from authoritative `roles` (`roles.includes('admin') || roles.includes('superadmin')`), ensuring non-admins are strictly restricted to assigned classes (`teacher_id = user.id`) regardless of client state.
+  - Row Level Security (RLS) on the PostgreSQL server remains the authoritative data boundary.
+* **Lightweight Student / Parent Switching Preserved**:
+  - Student ↔ Parent persona switching remains lightweight, fast, and does not require PIN verification.
+* **Build Verification**: `npm run build` executed and compiled with 0 errors in 4.99s.
 
 Review `ProtectedRoute` and every protected teacher route.
 
