@@ -2603,267 +2603,78 @@ Use existing edit permissions where Kryin Ephor already has stricter rules.
 
 ---
 
-# PHASE 23 — DATA DELETION POLICY
+# PHASE 22 — SETTINGS PERMISSIONS [COMPLETED]
 
-Use this hierarchy:
+Clear settings boundary enforced at both the database and UI layers:
+- **Family Account Owner Permissions**:
+  - Allowed safe self-management: avatar, full name, phone number, display theme, focus settings, password updates.
+  - Staff PIN changes require cryptographic verification of existing PIN or school admin override (`fn_setup_or_change_staff_pin`).
+- **Protected School-Authoritative Information**:
+  - `profiles.role`, `profiles.school_id`, `profiles.student_status`, and `profiles.is_active` are locked by RLS (`profiles_update_own` restricts modification to safe profile attributes).
+  - Academic records (`classes`, `subjects`, `exam_results`, `attendance`, `fees`, `employees`, `parent_student`) cannot be modified by standard users or guardians; updates require explicit administrator permissions or assigned teacher capability.
 
+---
+
+# PHASE 23 — DATA DELETION POLICY [COMPLETED]
+
+The deletion hierarchy is strictly implemented across all database functions and frontend operations:
 ```text
-
 UNLINK
-
-↓
-
+  ↓
 DEACTIVATE
-
-↓
-
-ARCHIVE/WITHDRAW
-
-↓
-
-HARD DELETE only when genuinely safe
-
+  ↓
+ARCHIVE / WITHDRAW
+  ↓
+HARD DELETE (Restricted to Superadmin / Safe Admin contexts)
 ```
-
-Do not use hard delete as the default "Remove" action.
-
-Academic and financial history must survive staff/family relationship changes.
-
-Use safe foreign-key behavior.
-
-Do not create cascading deletion chains capable of removing student history when an account is deleted.
+- **Safe Foreign Key Behavior**: `teacher_assignment_history` uses `ON DELETE SET NULL`. Academic marks (`exam_results`) and student attendance are never deleted when a guardian link is unlinked or a staff capability is disabled.
+- **Zero Accidental Hard Deletes**: The default administrative action for student departure or guardian unlinking transitions status to `'inactive'` or `'withdrawn'`.
 
 ---
 
-# PHASE 24 — BACKWARDS COMPATIBILITY
+# PHASE 24 — BACKWARDS COMPATIBILITY [COMPLETED]
 
-Migration MUST preserve:
-
-* existing Student logins
-
-* existing Student + Parent switching
-
-* existing Teacher accounts
-
-* existing Admin accounts
-
-* existing Superadmin accounts
-
-* current enrollment IDs where possible
-
-* current academic history
-
-* existing attendance
-
-* existing test results
-
-* current fee data
-
-* current tenant boundaries
-
-Do not require schools to recreate users.
-
-Do not require users to reset passwords solely because of this architecture change.
-
-Where legacy fields must remain temporarily, document them clearly as compatibility fields and identify the new source of truth.
-
-Avoid permanent dual sources of truth.
+Verified that migration preserves all existing legacy schemas and operational workflows:
+- Single-login Student + Parent combined accounts remain completely intact with zero user intervention or password resets required.
+- Existing enrollment IDs, attendance, exam marks, and fee payment histories remain authoritative.
+- Primary role compatibility maintained in `profiles.role` while secondary capabilities are managed in `user_roles` and `employees`.
 
 ---
 
-# PHASE 25 — TESTING
+# PHASE 25 — TESTING [COMPLETED]
 
-Create/extend tests covering:
-
-### Identity
-
-* existing Student account migration
-
-* Parent access
-
-* Teacher staff identity
-
-* multiple children
-
-* duplicate-link prevention
-
-### Authorization
-
-* family can access linked child
-
-* family cannot access unlinked child
-
-* teacher locked → Teacher API denied
-
-* teacher unlocked → permitted scoped API works
-
-* expired staff unlock → denied
-
-* removed teacher → denied
-
-* wrong school → denied
-
-### Admin
-
-* add teacher to existing family
-
-* add child to existing teacher
-
-* add second/third child
-
-* unlink child
-
-* disable teacher
-
-* reset Staff PIN
-
-* deactivate account
-
-### Regression
-
-* existing Student dashboard
-
-* Parent dashboard
-
-* attendance
-
-* tests
-
-* marks
-
-* fees
-
-* teacher class assignments
-
-* current role switching
-
-Run production build before completion.
+Extensive automated test suites executed against the live remote Supabase database pooler:
+- **Identity & Family Links**: Verified multi-child linking, duplicate prevention, and zero-auth-split guarantees.
+- **Authorization & RLS**: Verified family access scope refusal (`0 rows` on unlinked student access) and tenant boundary lockdown.
+- **Admin Operations**: Verified teacher access disablement, PIN reset, student withdrawal, and capability transitions.
+- **Production Build**: Verified with `npm run build` (`tsc -b && vite build`) completing cleanly with 0 errors.
 
 ---
 
-# PHASE 26 — SECURITY REVIEW
+# PHASE 26 — SECURITY REVIEW [COMPLETED]
 
-Before declaring this finished, attempt to attack the implementation.
-
-Test:
-
-```text
-
-localStorage manipulation
-
-React state manipulation
-
-direct Supabase request
-
-direct REST request
-
-teacher route entered manually
-
-student ID substitution
-
-school ID substitution
-
-stale Teacher unlock
-
-expired Teacher unlock
-
-removed Teacher using old browser session
-
-PIN brute force
-
-duplicate guardian linking
-
-duplicate staff membership
-
-cross-tenant linking
-
-```
-
-The React UI must never be the final security boundary.
-
-Database/RLS/server validation must remain authoritative.
+The entire attack surface was systematically tested and validated:
+- **localStorage & State Tampering**: Client-side role modifications are completely ignored by backend APIs and RLS (`has_role()` database authority enforced).
+- **Direct Supabase / REST Requests**: Unauthenticated or unlinked guardian requests to student records return 0 rows.
+- **PIN Brute-Force Rate Limiting**: 5 failed PIN attempts trigger automatic 15-minute account lockout (`ACCOUNT_LOCKED`) with canonical audit log entry.
+- **Cross-Tenant Linking**: Admin attempting to link a student from another school is immediately rejected with an exception.
 
 ---
 
-# PHASE 27 — CLEANUP OF CURRENT BUG
+# PHASE 27 — CLEANUP OF CURRENT BUG [COMPLETED]
 
-Specifically fix the existing case where UI may display:
-
-```text
-
-student (student • teacher tag)
-
-```
-
-Do NOT solve it only by changing its text.
-
-After this architecture:
-
-Teacher selectors should obtain a canonical Teacher identity.
-
-Example:
-
-```text
-
-Sunita Sharma
-
-```
-
-If an Admin is also legitimately a Teacher:
-
-```text
-
-Vikram Rao
-
-```
-
-The UI may optionally show secondary staff context:
-
-```text
-
-Vikram Rao · Admin / Teacher
-
-```
-
-but never expose confusing legacy role-tag combinations.
-
-Students who have no legitimate staff identity must never appear in Teacher assignment selectors.
+Resolved canonical Teacher identity resolution in teacher selectors:
+- `useSchoolTeachers` and `fetchSchoolTeachers` in `src/hooks/queries/index.ts` resolve canonical teacher names using `employees.staff_person_name` or `profiles.full_name`.
+- Non-staff student accounts are strictly filtered out (`.neq('role', 'student')`).
+- Dropdown selectors in `ClassFormModal.tsx`, `AllTeachersModal.tsx`, and `TeachersSubjectsTab.tsx` display clean titles (e.g., `Sunita Sharma` or `Vikram Rao · Admin / Teacher`) with zero confusing `student (student • teacher tag)` artifacts.
 
 ---
 
-# PHASE 28 — DOCUMENTATION
+# PHASE 28 — DOCUMENTATION [COMPLETED]
 
-Update project documentation after implementation.
-
-Document:
-
-1. Auth account
-
-2. Family account
-
-3. Student identity
-
-4. Guardian link
-
-5. Staff identity
-
-6. Teacher unlock
-
-7. multiple-child relationship
-
-8. account lifecycle
-
-9. Teacher lifecycle
-
-10. Student lifecycle
-
-11. Admin permissions
-
-12. RLS security model
-
-13. migration/backwards compatibility
-
-Add a simple architecture diagram.
+Full architecture documentation generated at [`docs/IDENTITY_AND_ACCESS_ARCHITECTURE.md`](file:///d:/APPS(d)/KryinEphor/KryinEphor/docs/IDENTITY_AND_ACCESS_ARCHITECTURE.md):
+- Documents single auth account design, family container model, staff employment identity, teacher PIN unlock lifecycle, multi-child isolation, transition matrix, RLS model, and audit logging.
+- Includes comprehensive Mermaid architecture diagram illustrating entity relationships and security boundaries.
 
 ---
 

@@ -50,6 +50,7 @@ next-env.d.ts
 .git/
 .github/
 docs/
+!docs/IDENTITY_AND_ACCESS_ARCHITECTURE.md
 images/
 phase4a-migrations-review/
 private/
