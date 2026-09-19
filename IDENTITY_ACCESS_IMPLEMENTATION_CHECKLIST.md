@@ -1951,7 +1951,7 @@ Server/RLS determines authorization.
 
 ---
 
-# PHASE 16 — ROW LEVEL SECURITY
+# PHASE 16 — ROW LEVEL SECURITY [COMPLETED]
 
 This phase is mandatory.
 
@@ -1960,35 +1960,20 @@ Do not consider the feature complete if only the React UI is secure.
 Verify RLS for:
 
 * students
-
 * guardian links
-
 * enrollments
-
 * attendance
-
 * exams
-
 * exam results
-
 * homework
-
 * fees
-
 * invoices
-
 * teacher assignments
-
 * classes
-
 * subject-teacher relationships
-
 * staff records
-
 * user roles
-
 * any new family tables
-
 * any new staff-unlock tables
 
 Rules must guarantee:
@@ -2040,6 +2025,30 @@ School A family account
 through ID manipulation.
 
 Never trust `school_id` submitted by the browser without server validation.
+
+### Verification and Delivery Notes:
+- **Migration Applied**: `20260915051000_phase16_row_level_security.sql`.
+- **Hardened Helper Functions**:
+  - `fn_can_access_student(UUID)`: Enforces non-null school membership for non-superadmins and exact school matching across caller, student, and relationship.
+  - `fn_is_assigned_teacher_for_class(UUID)`: Checks if caller is class teacher or subject teacher for the target class in the active school.
+  - `fn_is_assigned_teacher_for_exam_subject(UUID)`: Checks if caller is assigned to the class or subject of the exam subject in the active school.
+- **Audited and Hardened Policies Across All Domain Tables**:
+  - `profiles`: Added `profiles_guardian_student_select` allowing guardians to select linked students via `fn_can_access_student(id)`, while blocking unlinked students.
+  - `parent_student`: Removed loose legacy policies (`self_select`, `self_delete`, `self_insert`, `self_update`) that lacked school isolation; unified under `parent_student_tenant_select`.
+  - `classes`: Restricted INSERT/DELETE to `admin` and `superadmin`; restricted UPDATE to admins and assigned class teachers (`teacher_id = auth.uid()` with `has_role(auth.uid(), 'teacher')`).
+  - `subject_teachers`: Restricted INSERT, UPDATE, DELETE strictly to `admin` and `superadmin`.
+  - `attendance`: Cleaned up duplicate SELECT; hardened INSERT/UPDATE to require active teacher capability (`has_role(auth.uid(), 'teacher')`) and class assignment (`fn_is_assigned_teacher_for_class(class_id)`), plus admins/receptionists.
+  - `exam_results`: Cleaned up duplicate SELECT; hardened INSERT/UPDATE to require active teacher capability (`has_role(auth.uid(), 'teacher')`) and exam subject assignment (`fn_is_assigned_teacher_for_exam_subject(exam_subject_id)`), plus admins.
+  - `homework` & `homework_submissions`: Scoped `homework` writes to assigned teachers (`fn_is_assigned_teacher_for_class`); installed `homework_submissions_select` allowing guardians to read submissions for linked children (`fn_can_access_student(student_id)`).
+  - `invoices`: Dropped duplicate legacy `tenant_select`; preserved `invoices_select_guardian` using `fn_can_access_student(student_id)`.
+- **Automated Verification Suite (`scratch/test_phase16_full.cjs`)**:
+  - Suite 1 (Family Isolation): Linked student SELECT passes; unlinked student in same school returns 0 rows; cross-school student returns 0 rows.
+  - Suite 2 (Homework Submissions): Linked parent reads submission; unlinked parent returns 0 rows.
+  - Suite 3 (Teacher Marks & Attendance Scoping): Assigned class attendance/marks pass; unassigned class/exam subject mutations rejected by RLS.
+  - Suite 4 (Deactivated Teacher Check): Inactive staff member (`employees.status = 'inactive'`) mutation rejected by RLS.
+  - Suite 5 (Admin Privileges): Class creation and teacher assignments by non-admin educator rejected by RLS; admin operations pass.
+  - All 5 test suites passed against remote Supabase database pooler.
+
 
 ---
 
