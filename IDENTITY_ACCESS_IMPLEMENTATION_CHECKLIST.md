@@ -2052,7 +2052,7 @@ Never trust `school_id` submitted by the browser without server validation.
 
 ---
 
-# PHASE 17 — STAFF UNLOCK SESSION SECURITY
+# PHASE 17 — STAFF UNLOCK SESSION SECURITY [COMPLETED]
 
 Create a secure, session-bound Teacher unlock system.
 
@@ -2105,6 +2105,34 @@ On:
 * security reset
 
 revoke active Teacher unlock sessions.
+
+### Verification and Delivery Notes:
+- **Migration Applied**: `20260915052000_phase17_staff_unlock_session_security.sql`.
+- **Database Schema Upgrades**:
+  - `public.staff_unlock_sessions` extended with `auth_session_id UUID`, `staff_identity_id UUID REFERENCES employees(id)`, `unlocked_at TIMESTAMPTZ`, `revoked_at TIMESTAMPTZ`, and `failed_attempts INT`.
+  - Composite lookup index installed on `(user_id, is_revoked, expires_at)`.
+- **Server-Side Security RPCs**:
+  - `fn_verify_staff_pin`: Strictly verifies active staff employment in `public.employees` (`status = 'active'`). Rejects unlock if employee is missing or inactive. Binds session to `auth_session_id` and `staff_identity_id`. Generates 32-byte cryptographic hex token with 2-hour TTL. Never exposes hashes.
+  - `fn_validate_staff_session`: Enforces active employee status on every validation; automatically revokes session on the fly if employee was deactivated mid-session. Verifies session token, expiration, and auth session match.
+  - `fn_revoke_staff_session`: Invalidates target token with explicit revocation reason and records `revoked_at = now()`.
+  - `fn_revoke_all_staff_sessions`: Allows users to revoke all active sessions on logout/security reset, and allows same-school admins to revoke active sessions for target staff.
+- **Automated Lifecycle Revocation Triggers**:
+  - `trg_profile_deactivated_revoke_sessions` on `public.profiles`: Revokes all active sessions immediately when `is_active = false` or `deleted_at IS NOT NULL`.
+  - `trg_employee_deactivated_revoke_sessions` on `public.employees`: Revokes all active sessions immediately when `status <> 'active'` or `deleted_at IS NOT NULL`.
+  - `trg_user_roles_teacher_removed` on `public.user_roles`: Revokes active sessions if `'teacher'` capability is removed.
+- **Client-Side Device / Window Isolation**:
+  - Tokens stored exclusively in `sessionStorage` (`staff_session_token_${userId}`), preventing cross-device and cross-tab bleed across devices (e.g. laptop vs child's tablet).
+  - Explicit revocation executed during `signOut` and `lockStaffMode` with proper audit reasons.
+- **Automated Verification Suite (`scratch/test_phase17_full.cjs`)**:
+  - Test 1 (Setup PIN & Verify Unlock Session Tracking): PIN setup, unlock, tracking fields (`staff_identity_id`, `unlocked_at`, `expires_at`), and session validation verified (PASS).
+  - Test 2 (Revocation on Logout / User Revoke): Token revoked, `revoked_at` populated, subsequent validation returns `is_valid: false` (PASS).
+  - Test 3 (Revocation on PIN Change): PIN change automatically revokes prior active unlock sessions (PASS).
+  - Test 4 (Automated Trigger Revocation on Employee Deactivation): `employees.status = 'inactive'` automatically triggers revocation of active sessions (PASS).
+  - Test 5 (Inactive Staff Unlock Prevention): Inactive employee blocked from unlocking Teacher mode (PASS).
+  - Test 6 (Automated Trigger Revocation on Profile Deactivation): `profiles.is_active = false` automatically triggers session revocation (PASS).
+  - Test 7 (Admin Global Revocation RPC): Admin successfully revokes all active staff sessions (PASS).
+  - All 7 tests passed against remote Supabase database pooler.
+
 
 ---
 

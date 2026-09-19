@@ -439,15 +439,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Supabase server round-trip (which was adding ~5–7s to sign-out).
         // Global session revocation happens lazily on next server contact.
         try {
-            // Phase 5: Revoke server staff unlock session on logout
+            // Phase 17: Revoke server staff unlock session on logout
             if (staffSessionToken) {
                 try {
-                    await supabase.rpc('fn_revoke_staff_session', { _session_token: staffSessionToken });
+                    await supabase.rpc('fn_revoke_staff_session', {
+                        _session_token: staffSessionToken,
+                        _reason: 'LOGOUT'
+                    });
                 } catch { /* ignore */ }
             }
             if (currentUserId) {
                 try {
                     sessionStorage.removeItem(`staff_session_token_${currentUserId}`);
+
                 } catch { /* ignore */ }
             }
             setIsStaffUnlocked(false);
@@ -554,10 +558,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const lockStaffMode = useCallback(async () => {
         if (staffSessionToken) {
             try {
-                await supabase.rpc('fn_revoke_staff_session', { _session_token: staffSessionToken });
+                await supabase.rpc('fn_revoke_staff_session', {
+                    _session_token: staffSessionToken,
+                    _reason: 'USER_LOCKED'
+                });
             } catch { /* ignore */ }
         }
         setIsStaffUnlocked(false);
+
         setStaffSessionToken(null);
         if (user?.id) {
             try {
