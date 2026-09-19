@@ -1825,7 +1825,30 @@ The staff table stores the STAFF identity.
 
 ---
 
-# PHASE 14 — DUPLICATE DETECTION
+# PHASE 14 — DUPLICATE DETECTION [COMPLETED]
+
+* **Status**: Fully implemented, verified against live PostgreSQL pooler database, and compiled into production bundle.
+* **Database Migration**: `supabase/migrations/20260915050000_phase14_duplicate_detection.sql` applied to remote Supabase DB:
+  - `public.fn_detect_duplicate_identities`: Tenant-scoped RPC matching exact identifiers (verified email, verified phone, admission number / login ID, employee code, account ID) and probable identifiers (identical full name within school).
+  - `public.fn_audit_duplicate_decision`: Authoritative auditing RPC recording administrator resolution (`link_existing` vs `create_new_person`), candidate details, match reasons, and notes into `public.admin_action_audit`.
+* **Frontend Implementation** in `src/pages/UserManagement.tsx`:
+  - `DuplicateDetectionModal`: Reusable modal prompting the administrator with the required copy:
+    > "Possible existing account found. Do you want to link this identity or create a new person?"
+  - Explicit warning banner: *"Names are not unique — Verification required. Never silently combine two people."*
+  - Detailed candidate card UI displaying match strength badges (`Exact Match` vs `Probable Match`), matched reason breakdown, current primary and secondary roles, designation, department, and class enrollment info.
+  - Interactive resolution options:
+    - **Link Identity**: School-scoped linkage/role grant with audited decision logging.
+    - **Create New Person**: Audited override permitting creation of a distinct person with identical name or attributes.
+  - Integrated across:
+    1. **User Creation (`AddUserModal`)**: Checks Teacher, Parent, Student, and Staff creations.
+    2. **Child Creation & Link (`AddChildModal` in `UserDrawer`)**: Checks new student identities before creation and parent linkage.
+    3. **Teacher Access Provisioning (`AddTeacherModal` in `UserDrawer`)**: Checks adult educator identities before enabling teacher privileges.
+* **Remote Automated Verification**: Verified with `scratch/test_phase14_full.cjs` (4/4 tests passed):
+  - Scenario 1: Exact identifier match (verified email).
+  - Scenario 2: Probable name match ("Names are not unique" verification trigger).
+  - Scenario 3: Cross-school isolation (different tenant records never leak or match).
+  - Scenario 4: Authoritative audit trail in `public.admin_action_audit`.
+* **Production Build Verification**: `npm run build` executed cleanly with 0 errors.
 
 When adding Teacher, Parent or Child access, detect probable existing identities.
 

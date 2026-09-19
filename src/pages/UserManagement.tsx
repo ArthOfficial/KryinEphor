@@ -32,6 +32,7 @@ import {
     UserMinus,
     Settings2,
     ExternalLink,
+    ShieldAlert,
 } from 'lucide-react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
@@ -641,6 +642,203 @@ const AddChildModal: React.FC<{
     );
 };
 
+export interface DuplicateCandidate {
+    id: string;
+    full_name: string;
+    email: string;
+    primary_role: string;
+    phone: string | null;
+    login_id: string | null;
+    employee_code: string | null;
+    designation: string | null;
+    department: string | null;
+    class_name: string | null;
+    section_name: string | null;
+    is_active: boolean;
+    match_strength: 'exact' | 'probable';
+    match_reasons: string[];
+}
+
+/* 3b. Duplicate Detection Modal (Phase 14: Never Silently Merge) */
+const DuplicateDetectionModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    candidates: DuplicateCandidate[];
+    inputName: string;
+    inputEmail: string;
+    targetRoleLabel: string;
+    onLinkExisting: (candidate: DuplicateCandidate) => Promise<void> | void;
+    onCreateNewPerson: () => Promise<void> | void;
+    busy?: boolean;
+}> = ({
+    isOpen,
+    onClose,
+    candidates,
+    inputName,
+    inputEmail,
+    targetRoleLabel,
+    onLinkExisting,
+    onCreateNewPerson,
+    busy,
+}) => {
+    const [selectedCandidate, setSelectedCandidate] = useState<DuplicateCandidate | null>(null);
+
+    useEffect(() => {
+        if (candidates.length > 0) {
+            setSelectedCandidate(candidates[0]);
+        }
+    }, [candidates]);
+
+    if (!isOpen || candidates.length === 0) return null;
+
+    return (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-amber-300 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <AlertTriangle className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-bold text-foreground">
+                                Possible existing account found
+                            </h3>
+                            <p className="text-xs text-muted mt-0.5">
+                                Do you want to link this identity or create a new person?
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        disabled={busy}
+                        className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                {/* Never Silently Merge warning banner */}
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5 text-amber-950">
+                        <ShieldAlert className="w-4 h-4 text-amber-700" />
+                        Names are not unique — Verification required
+                    </p>
+                    <p className="text-[11px] text-amber-800/90">
+                        Do not silently merge accounts based solely on name. Review matching records below to verify if this is the same person or a distinct individual.
+                    </p>
+                </div>
+
+                {/* Proposed Identity being created */}
+                <div className="p-2.5 rounded-xl bg-stone-100 border border-stone-200 text-xs flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Attempting to add {targetRoleLabel}</span>
+                        <span className="font-semibold text-stone-900">{inputName || 'No Name Entered'}</span>
+                        {inputEmail && <span className="text-muted ml-1.5 font-mono text-[11px]">({inputEmail})</span>}
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-200 font-semibold text-stone-700">{candidates.length} match{candidates.length > 1 ? 'es' : ''}</span>
+                </div>
+
+                {/* Candidate list */}
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {candidates.map(cand => {
+                        const isSelected = selectedCandidate?.id === cand.id;
+                        return (
+                            <div
+                                key={cand.id}
+                                onClick={() => setSelectedCandidate(cand)}
+                                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                                    isSelected
+                                        ? 'bg-amber-50/80 border-amber-400 shadow-2xs'
+                                        : 'bg-stone-50 border-stone-200 hover:bg-stone-100/70'
+                                }`}
+                            >
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-stone-900">{cand.full_name}</span>
+                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-stone-200 text-stone-700">
+                                                {cand.primary_role}
+                                            </span>
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                cand.match_strength === 'exact'
+                                                    ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                            }`}>
+                                                {cand.match_strength === 'exact' ? 'Exact Match' : 'Probable Match'}
+                                            </span>
+                                            {!cand.is_active && (
+                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-stone-200 text-stone-600">
+                                                    Inactive
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-[11px] font-mono text-stone-600 mt-1">
+                                            {cand.email} {cand.login_id ? `• Adm/Login ID: ${cand.login_id}` : ''}
+                                        </p>
+                                        {(cand.class_name || cand.designation) && (
+                                            <p className="text-[11px] text-stone-500 mt-0.5">
+                                                {cand.class_name ? `Class: ${cand.class_name}${cand.section_name ? ` - ${cand.section_name}` : ''}` : ''}
+                                                {cand.designation ? `Designation: ${cand.designation} (${cand.department || 'Staff'})` : ''}
+                                                {cand.employee_code ? ` • Emp: ${cand.employee_code}` : ''}
+                                            </p>
+                                        )}
+                                        <div className="mt-1.5 space-y-0.5">
+                                            {cand.match_reasons.map((r, i) => (
+                                                <div key={i} className="text-[10px] text-stone-700 flex items-center gap-1">
+                                                    <span className="text-amber-600 font-bold">•</span>
+                                                    <span>{r}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <input
+                                        type="radio"
+                                        name="duplicate_selected"
+                                        checked={isSelected}
+                                        onChange={() => setSelectedCandidate(cand)}
+                                        className="mt-1 accent-amber-600"
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Actions */}
+                <div className="pt-2 border-t border-stone-200 flex items-center justify-between gap-2">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={busy}
+                        className="px-3 py-2 text-xs font-semibold rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-100"
+                    >
+                        Cancel & Review Info
+                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={onCreateNewPerson}
+                            disabled={busy}
+                            title="Confirm this is a distinct person and proceed"
+                            className="px-3 py-2 text-xs font-semibold rounded-xl border border-stone-300 bg-white text-stone-800 hover:bg-stone-50 transition-colors"
+                        >
+                            Create New Person
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!selectedCandidate || busy}
+                            onClick={() => selectedCandidate && onLinkExisting(selectedCandidate)}
+                            className="px-4 py-2 text-xs font-bold rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition-colors shadow-2xs disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                            {busy ? 'Processing…' : 'Link This Existing Identity'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 /* 4. Add Teacher Access Modal */
 const AddTeacherModal: React.FC<{
     isOpen: boolean;
@@ -1173,12 +1371,22 @@ const UserDrawer: React.FC<{
     const [newStudentPassword, setNewStudentPassword] = useState('');
     const [creatingStudentBusy, setCreatingStudentBusy] = useState(false);
 
+    // Phase 14: Child duplicate detection state
+    const [detectedChildDuplicates, setDetectedChildDuplicates] = useState<DuplicateCandidate[]>([]);
+    const [childDuplicateModalOpen, setChildDuplicateModalOpen] = useState(false);
+    const [childDuplicateActionBusy, setChildDuplicateActionBusy] = useState(false);
+
     // Teacher access workflow state
     const [addTeacherModalOpen, setAddTeacherModalOpen] = useState(false);
     const [newStaffPersonName, setNewStaffPersonName] = useState('');
     const [newStaffDesignation, setNewStaffDesignation] = useState('Teacher');
     const [newStaffDepartment, setNewStaffDepartment] = useState('Academics');
     const [addingTeacherBusy, setAddingTeacherBusy] = useState(false);
+
+    // Phase 14: Teacher duplicate detection state
+    const [teacherDupCandidates, setTeacherDupCandidates] = useState<DuplicateCandidate[]>([]);
+    const [teacherDupModalOpen, setTeacherDupModalOpen] = useState(false);
+    const [teacherDupActionBusy, setTeacherDupActionBusy] = useState(false);
 
     const [disableTeacherModalOpen, setDisableTeacherModalOpen] = useState(false);
     const [disablingTeacherBusy, setDisablingTeacherBusy] = useState(false);
@@ -1562,8 +1770,8 @@ const UserDrawer: React.FC<{
         }
     };
 
-    // Phase 12 Path 2: Create New Student & Link to Family
-    const handleCreateAndLinkStudent = async () => {
+    // Phase 12 Path 2: Create New Student & Link to Family (with Phase 14 Duplicate Detection)
+    const handleCreateAndLinkStudent = async (skipDupCheck: boolean = false) => {
         if (!user) return;
         const targetSchool = editSchool || user.school_id;
         if (!targetSchool) return;
@@ -1578,6 +1786,28 @@ const UserDrawer: React.FC<{
         }
 
         setCreatingStudentBusy(true);
+
+        // Phase 14: Duplicate Detection check before creating
+        if (!skipDupCheck) {
+            try {
+                const { data: dupData, error: dupErr } = await supabase.rpc('fn_detect_duplicate_identities', {
+                    _school_id: targetSchool,
+                    _name: newStudentName.trim(),
+                    _email: finalEmail,
+                    _admission_number: finalEmail,
+                    _role: 'student',
+                });
+                if (!dupErr && dupData && Array.isArray(dupData) && dupData.length > 0) {
+                    setDetectedChildDuplicates(dupData as DuplicateCandidate[]);
+                    setChildDuplicateModalOpen(true);
+                    setCreatingStudentBusy(false);
+                    return;
+                }
+            } catch (err) {
+                console.warn('Duplicate detection check non-blocking warning:', err);
+            }
+        }
+
         try {
             await supabase.auth.refreshSession();
 
@@ -1615,8 +1845,84 @@ const UserDrawer: React.FC<{
         }
     };
 
+    const handleLinkExistingDuplicateChild = async (candidate: DuplicateCandidate) => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setChildDuplicateActionBusy(true);
+        try {
+            const { error: linkErr } = await supabase.rpc('fn_link_student_guardian', {
+                _school_id: targetSchool,
+                _parent_id: user.id,
+                _student_id: candidate.id,
+                _relationship: newLinkRelationship,
+                _is_primary: newLinkIsPrimary,
+            });
+            if (linkErr) throw linkErr;
+
+            await supabase.rpc('fn_audit_duplicate_decision', {
+                _school_id: targetSchool,
+                _resolution: 'link_existing',
+                _candidate_id: candidate.id,
+                _candidate_name: candidate.full_name,
+                _input_name: newStudentName.trim(),
+                _input_email: editLockedDomain ? `${newStudentEmailLocal.trim().toLowerCase()}@${editLockedDomain}` : newStudentEmailLocal.trim().toLowerCase(),
+                _match_reasons: candidate.match_reasons,
+                _detail_notes: 'Admin chose to link existing student to family account instead of creating duplicate',
+            });
+
+            toast.success(`Existing student "${candidate.full_name}" linked to ${user.full_name || 'family account'}!`);
+            setChildDuplicateModalOpen(false);
+            setDetectedChildDuplicates([]);
+            setLinkStudentModalOpen(false);
+            setNewStudentName('');
+            setNewStudentEmailLocal('');
+            setNewStudentPassword('');
+            fetchFamilyLinks(user.id);
+            if (!additionalRoles.includes('parent') && editRole !== 'parent') {
+                setAdditionalRoles(prev => [...prev, 'parent']);
+            }
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to link existing student');
+        } finally {
+            setChildDuplicateActionBusy(false);
+        }
+    };
+
+    const handleConfirmCreateNewChild = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setChildDuplicateActionBusy(true);
+        try {
+            const top = detectedChildDuplicates[0];
+            await supabase.rpc('fn_audit_duplicate_decision', {
+                _school_id: targetSchool,
+                _resolution: 'create_new_person',
+                _candidate_id: top?.id || null,
+                _candidate_name: top?.full_name || null,
+                _input_name: newStudentName.trim(),
+                _input_email: editLockedDomain ? `${newStudentEmailLocal.trim().toLowerCase()}@${editLockedDomain}` : newStudentEmailLocal.trim().toLowerCase(),
+                _match_reasons: top?.match_reasons || [],
+                _detail_notes: 'Admin confirmed distinct student identity and proceeded with creation',
+            });
+
+            setChildDuplicateModalOpen(false);
+            setDetectedChildDuplicates([]);
+            await handleCreateAndLinkStudent(true /* skipDupCheck */);
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to proceed with creation');
+        } finally {
+            setChildDuplicateActionBusy(false);
+        }
+    };
+
     // Handle Add Teacher Access (single authoritative update_admin pathway)
-    const handleAddTeacherAccess = async () => {
+    const handleAddTeacherAccess = async (skipDupCheck = false) => {
         if (!user) return;
         const staffName = newStaffPersonName.trim();
         if (!staffName) {
@@ -1627,6 +1933,31 @@ const UserDrawer: React.FC<{
         if (!targetSchool) {
             toast.error('User must be assigned to a school before enabling staff access');
             return;
+        }
+
+        // Phase 14: Check for probable existing staff/teacher identities
+        if (!skipDupCheck) {
+            try {
+                const { data: dupData, error: dupErr } = await supabase.rpc('fn_detect_duplicate_identities', {
+                    _school_id: targetSchool,
+                    _target_role: 'teacher',
+                    _email: null,
+                    _full_name: staffName,
+                    _phone: null,
+                    _admission_number: null,
+                    _employee_code: null,
+                });
+                if (!dupErr && Array.isArray(dupData) && dupData.length > 0) {
+                    const filtered = (dupData as DuplicateCandidate[]).filter(c => c.id !== user.id);
+                    if (filtered.length > 0) {
+                        setTeacherDupCandidates(filtered);
+                        setTeacherDupModalOpen(true);
+                        return;
+                    }
+                }
+            } catch (dupCatch) {
+                console.warn('Teacher duplicate check non-blocking error:', dupCatch);
+            }
         }
 
         setAddingTeacherBusy(true);
@@ -1657,6 +1988,43 @@ const UserDrawer: React.FC<{
             toast.error(err instanceof Error ? err.message : 'Failed to add Teacher access');
         } finally {
             setAddingTeacherBusy(false);
+        }
+    };
+
+    const handleSelectExistingTeacherCandidate = (candidate: DuplicateCandidate) => {
+        toast.info(`Found existing staff account: ${candidate.full_name} (${candidate.email})`);
+        setTeacherDupModalOpen(false);
+        setTeacherDupCandidates([]);
+        setAddTeacherModalOpen(false);
+        handleOpenCanonicalProfile(candidate.id);
+    };
+
+    const handleConfirmProceedWithTeacherAccess = async () => {
+        if (!user) return;
+        const targetSchool = editSchool || user.school_id;
+        if (!targetSchool) return;
+
+        setTeacherDupActionBusy(true);
+        try {
+            const top = teacherDupCandidates[0];
+            await supabase.rpc('fn_audit_duplicate_decision', {
+                _school_id: targetSchool,
+                _resolution: 'create_new_person',
+                _candidate_id: top?.id || null,
+                _candidate_name: top?.full_name || null,
+                _input_name: newStaffPersonName.trim(),
+                _input_email: user.email || null,
+                _match_reasons: top?.match_reasons || [],
+                _detail_notes: 'Admin confirmed distinct staff member and granted Teacher access to user account',
+            });
+
+            setTeacherDupModalOpen(false);
+            setTeacherDupCandidates([]);
+            await handleAddTeacherAccess(true /* skipDupCheck */);
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to proceed with granting Teacher access');
+        } finally {
+            setTeacherDupActionBusy(false);
         }
     };
 
@@ -2621,6 +2989,38 @@ const UserDrawer: React.FC<{
                         creatingBusy={creatingStudentBusy}
                     />
 
+                    {/* Phase 14: Child Duplicate Detection Modal */}
+                    <DuplicateDetectionModal
+                        isOpen={childDuplicateModalOpen}
+                        onClose={() => {
+                            setChildDuplicateModalOpen(false);
+                            setDetectedChildDuplicates([]);
+                        }}
+                        candidates={detectedChildDuplicates}
+                        inputName={newStudentName}
+                        inputEmail={editLockedDomain ? `${newStudentEmailLocal.trim().toLowerCase()}@${editLockedDomain}` : newStudentEmailLocal.trim().toLowerCase()}
+                        targetRoleLabel="Student / Child"
+                        onLinkExisting={handleLinkExistingDuplicateChild}
+                        onCreateNewPerson={handleConfirmCreateNewChild}
+                        busy={childDuplicateActionBusy}
+                    />
+
+                    {/* Phase 14: Teacher Duplicate Detection Modal */}
+                    <DuplicateDetectionModal
+                        isOpen={teacherDupModalOpen}
+                        onClose={() => {
+                            setTeacherDupModalOpen(false);
+                            setTeacherDupCandidates([]);
+                        }}
+                        candidates={teacherDupCandidates}
+                        inputName={newStaffPersonName}
+                        inputEmail={user?.email || ''}
+                        targetRoleLabel="Teacher / Staff"
+                        onLinkExisting={handleSelectExistingTeacherCandidate}
+                        onCreateNewPerson={handleConfirmProceedWithTeacherAccess}
+                        busy={teacherDupActionBusy}
+                    />
+
                     <AddTeacherModal
                         isOpen={addTeacherModalOpen}
                         onClose={() => setAddTeacherModalOpen(false)}
@@ -3194,6 +3594,11 @@ const AddUserModal: React.FC<{
     const [guardianRelationship, setGuardianRelationship] = useState('mother');
     const [isPrimaryGuardian, setIsPrimaryGuardian] = useState(true);
 
+    // Phase 14: Duplicate detection state
+    const [userDupCandidates, setUserDupCandidates] = useState<DuplicateCandidate[]>([]);
+    const [showUserDupModal, setShowUserDupModal] = useState(false);
+    const [userDupBusy, setUserDupBusy] = useState(false);
+
     // Recovery-email flow (after user is created)
     const [createdUserId, setCreatedUserId] = useState<string>('');
     const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -3249,6 +3654,9 @@ const AddUserModal: React.FC<{
             setSelectedGuardian(null);
             setGuardianRelationship('mother');
             setIsPrimaryGuardian(true);
+            setUserDupCandidates([]);
+            setShowUserDupModal(false);
+            setUserDupBusy(false);
         }
     }, [isOpen, isSuperadmin, myschoolId, initialRole]);
 
@@ -3309,7 +3717,7 @@ const AddUserModal: React.FC<{
         return () => clearTimeout(timer);
     }, [isOpen, role, linkGuardian, schoolId, myschoolId, guardianSearchQuery]);
 
-    const handleCreate = async () => {
+    const handleCreate = async (skipDupCheck = false) => {
         // Compose the effective email
         const finalEmail = lockedDomain
             ? `${emailLocal.trim().toLowerCase()}@${lockedDomain}`
@@ -3327,6 +3735,34 @@ const AddUserModal: React.FC<{
             setError('Enter a valid email address.');
             return;
         }
+
+        const targetSchool = schoolId || myschoolId;
+        const effectiveName = role === 'teacher' && teacherStaffName.trim() ? teacherStaffName.trim() : fullName.trim();
+
+        // Phase 14: Duplicate detection check before creation
+        if (!skipDupCheck && targetSchool) {
+            setSaving(true);
+            try {
+                const { data: dupData, error: dupErr } = await supabase.rpc('fn_detect_duplicate_identities', {
+                    _school_id: targetSchool,
+                    _target_role: role,
+                    _email: finalEmail,
+                    _full_name: effectiveName,
+                    _phone: null,
+                    _admission_number: null,
+                    _employee_code: null,
+                });
+                if (!dupErr && Array.isArray(dupData) && dupData.length > 0) {
+                    setUserDupCandidates(dupData as DuplicateCandidate[]);
+                    setShowUserDupModal(true);
+                    setSaving(false);
+                    return;
+                }
+            } catch (dupCatch) {
+                console.warn('User duplicate check non-blocking error:', dupCatch);
+            }
+        }
+
         setSaving(true); setError(''); setSuccess('');
         try {
             const body: Record<string, unknown> = { email: finalEmail, password, fullName: fullName.trim(), role };
@@ -3355,6 +3791,113 @@ const AddUserModal: React.FC<{
             setError((err instanceof Error ? err.message : '') || 'Failed to create user.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleLinkExistingUserCandidate = async (candidate: DuplicateCandidate) => {
+        const targetSchool = schoolId || myschoolId;
+        if (!targetSchool) return;
+
+        setUserDupBusy(true);
+        try {
+            const finalEmail = lockedDomain
+                ? `${emailLocal.trim().toLowerCase()}@${lockedDomain}`
+                : email.trim().toLowerCase();
+            const effectiveName = role === 'teacher' && teacherStaffName.trim() ? teacherStaffName.trim() : fullName.trim();
+
+            // 1. Audit resolution
+            await supabase.rpc('fn_audit_duplicate_decision', {
+                _school_id: targetSchool,
+                _resolution: 'link_existing',
+                _candidate_id: candidate.id,
+                _candidate_name: candidate.full_name,
+                _input_name: effectiveName,
+                _input_email: finalEmail,
+                _match_reasons: candidate.match_reasons || [],
+                _detail_notes: `Admin linked existing identity (${candidate.id}) instead of creating new ${role}`,
+            });
+
+            // 2. Grant role / link access
+            if (role === 'teacher') {
+                const body: Record<string, unknown> = {
+                    adminId: candidate.id,
+                    schoolId: targetSchool,
+                    teacherAction: 'enable',
+                    staffPersonName: teacherStaffName.trim() || candidate.full_name,
+                    designation: teacherDesignation.trim() || 'Teacher',
+                    department: teacherDepartment.trim() || 'Academics',
+                };
+                const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+                if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to grant Teacher access'));
+                if (fnData?.error) throw new Error(fnData.error);
+            } else {
+                const existingRoles = candidate.primary_role ? [candidate.primary_role] : [];
+                const updatedRoles = Array.from(new Set([...existingRoles, role]));
+                const body: Record<string, unknown> = {
+                    adminId: candidate.id,
+                    additionalRoles: updatedRoles,
+                };
+                const { data: fnData, error: fnError } = await supabase.functions.invoke('update_admin', { body });
+                if (fnError) throw new Error(await getFunctionErrorMessage(fnError, 'Failed to update user roles'));
+                if (fnData?.error) throw new Error(fnData.error);
+            }
+
+            // 3. If student and guardian was selected, also link to guardian
+            if (role === 'student' && linkGuardian && selectedGuardian) {
+                const { error: linkErr } = await supabase.rpc('fn_link_parent_student', {
+                    _parent_id: selectedGuardian.guardian_id,
+                    _student_id: candidate.id,
+                    _school_id: targetSchool,
+                    _relationship: guardianRelationship,
+                    _is_primary: isPrimaryGuardian,
+                });
+                if (linkErr) {
+                    toast.error(`Account updated but failed to link guardian: ${linkErr.message}`);
+                }
+            }
+
+            toast.success(`Identity successfully linked to ${candidate.full_name}!`);
+            setShowUserDupModal(false);
+            setUserDupCandidates([]);
+            onCreated();
+            onClose();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to link identity');
+        } finally {
+            setUserDupBusy(false);
+        }
+    };
+
+    const handleConfirmCreateNewUser = async () => {
+        const targetSchool = schoolId || myschoolId;
+        if (!targetSchool) return;
+
+        setUserDupBusy(true);
+        try {
+            const finalEmail = lockedDomain
+                ? `${emailLocal.trim().toLowerCase()}@${lockedDomain}`
+                : email.trim().toLowerCase();
+            const effectiveName = role === 'teacher' && teacherStaffName.trim() ? teacherStaffName.trim() : fullName.trim();
+            const top = userDupCandidates[0];
+
+            await supabase.rpc('fn_audit_duplicate_decision', {
+                _school_id: targetSchool,
+                _resolution: 'create_new_person',
+                _candidate_id: top?.id || null,
+                _candidate_name: top?.full_name || null,
+                _input_name: effectiveName,
+                _input_email: finalEmail,
+                _match_reasons: top?.match_reasons || [],
+                _detail_notes: `Admin confirmed distinct person identity and proceeded to create new ${role}`,
+            });
+
+            setShowUserDupModal(false);
+            setUserDupCandidates([]);
+            await handleCreate(true /* skipDupCheck */);
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to proceed with creation');
+        } finally {
+            setUserDupBusy(false);
         }
     };
 
@@ -4035,7 +4578,7 @@ const AddUserModal: React.FC<{
                                         <button onClick={onClose} className="flex-1 py-3 rounded-2xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors">
                                             Cancel
                                         </button>
-                                        <button onClick={handleCreate} disabled={saving} className="flex-1 clay-btn py-3 disabled:opacity-50 flex items-center justify-center gap-2">
+                                        <button onClick={() => handleCreate(false)} disabled={saving} className="flex-1 clay-btn py-3 disabled:opacity-50 flex items-center justify-center gap-2">
                                             {saving ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating...</> : <>Create User</>}
                                         </button>
                                     </>
@@ -4046,6 +4589,22 @@ const AddUserModal: React.FC<{
                                 )}
                             </div>
                         </div>
+
+                        {/* Phase 14: Duplicate detection confirmation modal */}
+                        <DuplicateDetectionModal
+                            isOpen={showUserDupModal}
+                            onClose={() => {
+                                setShowUserDupModal(false);
+                                setUserDupCandidates([]);
+                            }}
+                            candidates={userDupCandidates}
+                            inputName={role === 'teacher' && teacherStaffName.trim() ? teacherStaffName.trim() : fullName.trim()}
+                            inputEmail={lockedDomain ? `${emailLocal.trim().toLowerCase()}@${lockedDomain}` : email.trim().toLowerCase()}
+                            targetRoleLabel={role.charAt(0).toUpperCase() + role.slice(1)}
+                            onLinkExisting={handleLinkExistingUserCandidate}
+                            onCreateNewPerson={handleConfirmCreateNewUser}
+                            busy={userDupBusy}
+                        />
                     </motion.div>
                 </>
             )}
