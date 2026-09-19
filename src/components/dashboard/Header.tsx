@@ -157,26 +157,33 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
                 )}
 
                 {/* Persona Switcher for multi-role/multi-child, or quick switch button for pure Student/Parent */}
-                {(roles.length > 2 || (linkedStudents && linkedStudents.length > 1)) ? (
-                    <PersonaSwitcher variant="header" />
-                ) : (roles.includes('student') && roles.includes('parent')) ? (
-                    <button
-                        type="button"
-                        onClick={() => {
-                            const next = role === 'student' ? 'parent' : 'student';
-                            switchDashboardRole(next);
-                            if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname)) {
-                                navigate('/dashboard');
-                            }
-                        }}
-                        title={`Switch to ${role === 'student' ? 'Parent' : 'Student'} View`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-teal-50 to-emerald-50 text-teal-800 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                    >
-                        <ArrowLeftRight className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                        <span className="hidden sm:inline">Switch to {role === 'student' ? 'Parent' : 'Student'}</span>
-                        <span className="sm:hidden">{role === 'student' ? 'Parent' : 'Student'}</span>
-                    </button>
-                ) : null}
+                {(() => {
+                    const isPureStudentParent = roles.includes('student') && roles.includes('parent') && roles.length === 2 && (!linkedStudents || linkedStudents.length <= 1);
+                    if (!isPureStudentParent && (roles.length > 1 || (linkedStudents && linkedStudents.length > 1))) {
+                        return <PersonaSwitcher variant="header" />;
+                    }
+                    if (isPureStudentParent) {
+                        return (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const next = role === 'student' ? 'parent' : 'student';
+                                    switchDashboardRole(next);
+                                    if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname)) {
+                                        navigate('/dashboard');
+                                    }
+                                }}
+                                title={`Switch to ${role === 'student' ? 'Parent' : 'Student'} View`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-teal-50 to-emerald-50 text-teal-800 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            >
+                                <ArrowLeftRight className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                <span className="hidden sm:inline">Switch to {role === 'student' ? 'Parent' : 'Student'}</span>
+                                <span className="sm:hidden">{role === 'student' ? 'Parent' : 'Student'}</span>
+                            </button>
+                        );
+                    }
+                    return null;
+                })()}
                 {(() => {
                     const roleLabelMap: Record<string, string> = {
                         superadmin: 'Super Admin',

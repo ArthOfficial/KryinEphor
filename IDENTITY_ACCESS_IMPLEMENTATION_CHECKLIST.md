@@ -2324,6 +2324,27 @@ Maintain polished responsive behavior on desktop and mobile.
 
 Preserve current Kryin Ephor styling/design language.
 
+### Implementation Deliverables:
+- **Unified Persona Switcher Menu (`src/components/dashboard/PersonaSwitcher.tsx`)**:
+  - Top identity block with user full name, email, and contextual "Lock Staff" button for unlocked teacher sessions.
+  - **FAMILY Section**:
+    - `👨‍👩‍👧 Parent Dashboard` rendered prominently at top of family section with checkmark when active.
+    - Linked children dynamically rendered with class formatting: `🎓 {child.fullName} — Class {className}{section}` (e.g., `🎓 Aarav — Class 5A`).
+  - **WORK Section**:
+    - `👩‍🏫 Teacher Dashboard`: displays `🔒` PIN badge when locked, `✓` checkmark when unlocked, and `Active` badge when currently viewing Teacher dashboard.
+    - `🛡️ School Admin` / `Super Admin`: displays administrative dashboard selector with active checkmark.
+- **Fixed Header Mount Condition (`src/components/dashboard/Header.tsx`)**:
+  - Resolved bug where multi-persona accounts with 2 roles (e.g., Teacher + Parent with 1 child) did not render either switcher or toggle.
+  - Pure 2-role Student + Parent accounts with `<= 1` child retain 1-click quick toggle button.
+  - All other multi-persona accounts (Teacher + Parent, multi-child parents, Teacher + Admin) render `<PersonaSwitcher variant="header" />`.
+- **Zero Re-login Persona Transitions**:
+  - Contextual in-place switching via `handleSelectRole(role, studentId)`: instant switching between parent, child student views, and staff workspaces without full-page reloads or logging out.
+  - Automatic fallback redirect to `/dashboard` if switching out of staff-only administrative routes.
+- **Responsive & Design System Integration**:
+  - Maintained polished responsive behavior on both desktop dropdown and sidebar views with Kryin Ephor clay aesthetic (`clay-card`, `shadow-xl`, `border-stone-200/90`).
+- **Production Verification**:
+  - Verified with `npm run build` (`tsc -b && vite build` passed cleanly in 5.00s with 0 errors).
+
 ---
 
 # PHASE 21 — IMPORTANT ACCOUNT LIFECYCLE SCENARIOS
