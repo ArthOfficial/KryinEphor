@@ -22,6 +22,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
 import {
     evaluateDeletePermission,
+    evaluateAccountDisposability,
     expectedConfirmText,
     normalize,
 } from "./permissions.ts";
@@ -71,9 +72,17 @@ Deno.serve(async (req: Request) => {
             auth: { autoRefreshToken: false, persistSession: false },
         });
 
+        // Authoritative caller role derivation (primary profile role + user_roles)
         const { data: callerProfile } = await admin
             .from("profiles").select("role, school_id").eq("id", caller.id).single();
         if (!callerProfile) return json({ error: "Caller profile not found" }, 403);
+
+        const { data: callerUserRoles } = await admin
+            .from("user_roles").select("role").eq("user_id", caller.id);
+        const callerRoles = Array.from(new Set([
+            callerProfile.role,
+            ...(callerUserRoles ?? []).map((r: { role: string }) => r.role),
+        ])).filter(Boolean);
 
         let payload: { targetUserId?: string; confirmText?: string };
         try { payload = await req.json(); } catch { return json({ error: "Invalid JSON payload" }, 400); }
@@ -83,17 +92,25 @@ Deno.serve(async (req: Request) => {
         if (!targetUserId) return json({ error: "targetUserId is required" }, 400);
         if (!confirmText) return json({ error: "confirmText is required" }, 400);
 
-        // Load target
+        // Load target and authoritative roles
         const { data: target, error: tgtErr } = await admin
             .from("profiles")
             .select("id, full_name, email, role, school_id")
             .eq("id", targetUserId).single();
         if (tgtErr || !target) return json({ error: "Target user not found" }, 404);
 
-        // Centralised permission decision (covered by unit tests)
+        const { data: targetUserRoles } = await admin
+            .from("user_roles").select("role").eq("user_id", targetUserId);
+        const targetRoles = Array.from(new Set([
+            target.role,
+            ...(targetUserRoles ?? []).map((r: { role: string }) => r.role),
+        ])).filter(Boolean);
+
+        // Centralised permission decision with full caller roles
         const decision = evaluateDeletePermission(
             { id: caller.id, role: callerProfile.role, school_id: callerProfile.school_id },
             { id: target.id, role: target.role, school_id: target.school_id, email: target.email },
+            callerRoles,
         );
         if (!decision.allowed) return json({ error: decision.reason }, decision.status);
 
@@ -108,25 +125,59 @@ Deno.serve(async (req: Request) => {
         if (confirmText !== expected)
             return json({ error: "Confirmation text does not match." }, 400);
 
-        // If target is a student, guard against deleting active academic/financial records
-        if (target.role === "student" && target.school_id) {
+        const targetIsStudent = targetRoles.includes("student");
+        let eligibilityResult: Record<string, unknown> | null = null;
+
+        // If target has student capability, enforce disposability and dependency protections
+        if (targetIsStudent) {
+            // Check employees identity
+            const { data: empRecord } = await admin
+                .from("employees")
+                .select("id")
+                .eq("profile_id", targetUserId)
+                .is("deleted_at", null)
+                .limit(1);
+            const hasEmployeesRecord = (empRecord && empRecord.length > 0) || false;
+
+            // Check family relationships (as student or guardian, active or historical)
+            const { data: psRecords } = await admin
+                .from("parent_student")
+                .select("id")
+                .or(`student_id.eq.${targetUserId},parent_id.eq.${targetUserId}`)
+                .limit(1);
+            const hasFamilyRelationships = (psRecords && psRecords.length > 0) || false;
+
+            // 1. Multi-persona and identity disposability check
+            const disposability = evaluateAccountDisposability(
+                targetRoles,
+                hasEmployeesRecord,
+                hasFamilyRelationships,
+            );
+            if (!disposability.disposable) {
+                return json({ error: disposability.reason }, 400);
+            }
+
+            // 2. Authoritative dependency check via locked service-only RPC
             const { data: eligibility, error: eligErr } = await admin.rpc(
-                "fn_check_student_delete_eligibility",
+                "fn_check_student_delete_eligibility_internal",
                 {
                     _school_id: target.school_id,
                     _student_id: targetUserId,
+                    _actor_id: caller.id,
                 },
             );
             if (eligErr) {
                 return json({ error: `Failed to verify student deletion eligibility: ${eligErr.message}` }, 500);
             }
+            eligibilityResult = eligibility;
+
             if (eligibility && !eligibility.can_delete) {
                 const reasonsList = (eligibility.reasons as string[] || []).join(", ");
                 
                 // Canonical audit log: student deletion attempted (blocked)
                 await admin.from("admin_action_audit").insert({
                     actor_id: caller.id,
-                    actor_role: callerProfile.role,
+                    actor_role: callerRoles.includes("superadmin") ? "superadmin" : "admin",
                     school_id: target.school_id,
                     target_user_id: targetUserId,
                     action: "student deletion attempted",
@@ -143,36 +194,81 @@ Deno.serve(async (req: Request) => {
                 });
 
                 return json({
-                    error: `Permanent deletion blocked: student has active records (${reasonsList}). To protect academic history, hard deletion is refused. Please mark the student as Withdrawn, Transferred, or Inactive instead.`,
+                    error: `Permanent deletion blocked: student has active or historical records (${reasonsList}). To protect student and family history, hard deletion is refused. Please mark the student as Withdrawn, Transferred, or Inactive instead.`,
                     eligibility,
                 }, 400);
             }
         }
 
-        // Hard delete from auth (profile + related rows cascade via FKs)
+        // Durable Two-Phase Hard-Delete Auditing:
+        // Phase 1: Insert pending audit row with complete target identity snapshot BEFORE delete
+        const actorRoleForAudit = callerRoles.includes("superadmin") ? "superadmin" : "admin";
+        const auditDetail: Record<string, unknown> = {
+            operation_state: "pending",
+            completed: false,
+            target_id: targetUserId,
+            target_name: target.full_name,
+            target_email: target.email,
+            target_role: target.role,
+            target_roles: targetRoles,
+            school_id: target.school_id,
+            target_student_identity: targetIsStudent ? targetUserId : undefined,
+            exceptionally_allowed: targetIsStudent ? true : undefined,
+            eligibility_summary: targetIsStudent ? eligibilityResult?.summary : undefined,
+            actor_id: caller.id,
+            actor_roles: callerRoles,
+            initiated_at: new Date().toISOString(),
+        };
+
+        const { data: auditRow } = await admin
+            .from("admin_action_audit")
+            .insert({
+                actor_id: caller.id,
+                actor_role: actorRoleForAudit,
+                school_id: target.school_id,
+                target_user_id: targetUserId,
+                action: targetIsStudent ? "student_hard_delete_pending" : "user_hard_delete_pending",
+                detail: auditDetail,
+                created_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+
+        const auditId = auditRow?.id;
+
+        // Phase 2: Perform hard delete from auth (profile + related rows cascade via FKs)
         const { error: delErr } = await admin.auth.admin.deleteUser(targetUserId);
-        if (delErr) return json({ error: `Delete failed: ${delErr.message}` }, 400);
+        if (delErr) {
+            if (auditId) {
+                await admin.from("admin_action_audit").update({
+                    action: targetIsStudent ? "student_hard_delete_failed" : "user_hard_delete_failed",
+                    detail: {
+                        ...auditDetail,
+                        operation_state: "failed",
+                        completed: false,
+                        error: delErr.message,
+                        failed_at: new Date().toISOString(),
+                    },
+                }).eq("id", auditId);
+            }
+            return json({ error: `Delete failed: ${delErr.message}` }, 400);
+        }
 
         // Best-effort: also delete profile row if it lingered without cascade
         await admin.from("profiles").delete().eq("id", targetUserId);
 
-        // Canonical audit log
-        await admin.from("admin_action_audit").insert({
-            actor_id: caller.id,
-            actor_role: callerProfile.role,
-            school_id: target.school_id,
-            target_user_id: targetUserId,
-            action: target.role === "student" ? "student deleted if exceptionally allowed" : "user_hard_deleted",
-            detail: {
-                target_name: target.full_name,
-                target_email: target.email,
-                target_role: target.role,
-                target_student_identity: target.role === "student" ? targetUserId : undefined,
-                exceptionally_allowed: target.role === "student" ? true : undefined,
-                school_id: target.school_id,
-            },
-            created_at: new Date().toISOString(),
-        });
+        // Phase 3: Update audit row to completed
+        if (auditId) {
+            await admin.from("admin_action_audit").update({
+                action: targetIsStudent ? "student deleted if exceptionally allowed" : "user_hard_deleted",
+                detail: {
+                    ...auditDetail,
+                    operation_state: "completed",
+                    completed: true,
+                    completed_at: new Date().toISOString(),
+                },
+            }).eq("id", auditId);
+        }
 
         return json({ success: true, deletedUserId: targetUserId }, 200);
     } catch (e: unknown) {

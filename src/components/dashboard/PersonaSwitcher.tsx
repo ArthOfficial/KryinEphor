@@ -62,8 +62,12 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
         return c || s;
     };
 
+    // Filter children who have active student status for the active Student persona view
+    const activeLinkedStudents = linkedStudents.filter(s => !s.studentStatus || s.studentStatus === 'active');
+    const hasActiveStudentPersona = (roles.includes('student') && (!user?.studentStatus || user.studentStatus === 'active')) || activeLinkedStudents.length > 0;
+
     // Check which workspaces are available
-    const hasFamilyWorkspaces = roles.includes('student') || roles.includes('parent') || linkedStudents.length > 0;
+    const hasFamilyWorkspaces = hasActiveStudentPersona || roles.includes('parent') || linkedStudents.length > 0;
     const hasWorkWorkspaces = roles.some(r => ['teacher', 'admin', 'superadmin', 'accountant', 'receptionist'].includes(r));
 
     // Handle switching to a specific role/workspace
@@ -186,10 +190,10 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                 </button>
                             )}
 
-                            {/* Student Persona(s) / Linked Children */}
-                            {(roles.includes('student') || linkedStudents.length > 0) && (
-                                linkedStudents.length > 0 ? (
-                                    linkedStudents.map((child) => {
+                            {/* Student Persona(s) / Linked Children (active only) */}
+                            {hasActiveStudentPersona && (
+                                activeLinkedStudents.length > 0 ? (
+                                    activeLinkedStudents.map((child) => {
                                         const isCurrent = role === 'student' && (activeStudentId === child.studentId || (!activeStudentId && child.isPrimary));
                                         const classInfo = formatChildClass(child.className, child.sectionName);
                                         return (
@@ -217,7 +221,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                             </button>
                                         );
                                     })
-                                ) : (
+                                ) : (roles.includes('student') && (!user?.studentStatus || user.studentStatus === 'active')) ? (
                                     <button
                                         type="button"
                                         onClick={() => handleSelectRole('student')}
@@ -239,7 +243,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                             <Check className="w-3 h-3 text-white shrink-0" />
                                         )}
                                     </button>
-                                )
+                                ) : null
                             )}
                         </div>
                     </div>
@@ -389,10 +393,10 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                     </button>
                                 )}
 
-                                {/* Linked Children / Student Persona(s) */}
-                                {(roles.includes('student') || linkedStudents.length > 0) && (
-                                    linkedStudents.length > 0 ? (
-                                        linkedStudents.map((child) => {
+                                {/* Linked Children / Student Persona(s) (active only) */}
+                                {hasActiveStudentPersona && (
+                                    activeLinkedStudents.length > 0 ? (
+                                        activeLinkedStudents.map((child) => {
                                             const isCurrent = role === 'student' && (activeStudentId === child.studentId || (!activeStudentId && child.isPrimary));
                                             const classInfo = formatChildClass(child.className, child.sectionName);
                                             return (
@@ -418,7 +422,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                                 </button>
                                             );
                                         })
-                                    ) : (
+                                    ) : (roles.includes('student') && (!user?.studentStatus || user.studentStatus === 'active')) ? (
                                         <button
                                             type="button"
                                             onClick={() => handleSelectRole('student')}
@@ -436,7 +440,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                             </div>
                                             {role === 'student' && <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0 stroke-[2.5]" />}
                                         </button>
-                                    )
+                                    ) : null
                                 )}
                             </div>
                         </div>

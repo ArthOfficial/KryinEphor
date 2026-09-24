@@ -7,6 +7,7 @@ export interface AuthUser {
     fullName?: string;
     schoolId?: string | null;
     schoolName?: string | null;
+    studentStatus?: string | null;
 }
 
 export interface TransitionState {
@@ -36,6 +37,7 @@ export interface LinkedStudentPersona {
     className?: string | null;
     sectionName?: string | null;
     status?: string | null;
+    studentStatus?: string | null;
 }
 
 export interface AuthContextType {

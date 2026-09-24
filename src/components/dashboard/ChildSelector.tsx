@@ -94,6 +94,11 @@ export const ChildSelector: React.FC<ChildSelectorProps> = ({
                                     Primary
                                 </span>
                             )}
+                            {activeChild.studentStatus && activeChild.studentStatus !== 'active' && (
+                                <span className="text-[9px] font-extrabold capitalize px-1 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                    {activeChild.studentStatus}
+                                </span>
+                            )}
                         </div>
                     </div>
 
@@ -151,6 +156,11 @@ export const ChildSelector: React.FC<ChildSelectorProps> = ({
                                                 {child.isPrimary && (
                                                     <span className="text-[9px] font-extrabold uppercase px-1 rounded bg-emerald-100/70 text-emerald-800">
                                                         Primary
+                                                    </span>
+                                                )}
+                                                {child.studentStatus && child.studentStatus !== 'active' && (
+                                                    <span className="text-[9px] font-extrabold capitalize px-1 rounded bg-amber-100/70 text-amber-800 border border-amber-200">
+                                                        {child.studentStatus}
                                                     </span>
                                                 )}
                                             </div>

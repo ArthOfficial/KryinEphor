@@ -15,10 +15,10 @@ export { useAuth } from '../hooks/useAuth';
 /**
  * Fetch the user's profile (role, full_name, school) from the profiles table.
  */
-async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName: string; schoolId: string | null; schoolName: string | null } | null> {
+async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName: string; schoolId: string | null; schoolName: string | null; studentStatus?: string | null } | null> {
     const { data, error } = await supabase
         .from('profiles')
-        .select('role, full_name, school_id, schools:school_id(name)')
+        .select('role, full_name, school_id, student_status, schools:school_id(name)')
         .eq('id', userId)
         .single();
 
@@ -34,6 +34,7 @@ async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName:
         role: string;
         full_name: string | null;
         school_id: string | null;
+        student_status?: string | null;
         schools: { name: string } | { name: string }[] | null;
     };
     const schoolJoin = Array.isArray(row.schools) ? row.schools[0] : row.schools;
@@ -43,6 +44,7 @@ async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName:
         fullName: row.full_name || '',
         schoolId: row.school_id ?? null,
         schoolName: schoolJoin?.name ?? null,
+        studentStatus: row.student_status ?? null,
     };
 }
 
@@ -113,7 +115,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     avatarUrl: s.avatar_url ?? null,
                     className: s.class_name ?? null,
                     sectionName: s.section_name ?? null,
-                    status: s.status ?? 'active'
+                    status: s.status ?? 'active',
+                    studentStatus: s.student_status ?? 'active'
                 }));
                 setLinkedStudents(parsed);
 
@@ -175,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 fullName: profile.fullName,
                 schoolId: profile.schoolId,
                 schoolName: profile.schoolName,
+                studentStatus: profile.studentStatus ?? null,
             });
             // Fetch all assigned roles (primary + additional) via SECURITY DEFINER RPC.
             const { data: rolesData } = await supabase.rpc('fn_get_my_roles');

@@ -99,3 +99,38 @@ Deno.test("expectedConfirmText shape: <schoolSlug>/<fullName lowercased>", () =>
     assertEquals(expectedConfirmText("", "Jane"), "platform/jane");
     assertEquals(expectedConfirmText("St. Mary's", "  Anna  "), "stmarys/anna");
 });
+
+Deno.test("caller with additional admin role in user_roles can delete users in their school", () => {
+    const caller: ProfileLike = { id: "u-teacher-admin", role: "teacher", school_id: "school-A", email: "ta@x.com" };
+    const d = evaluateDeletePermission(caller, student({ school_id: "school-A" }), ["teacher", "admin"]);
+    assertEquals(d.allowed, true);
+});
+
+Deno.test("caller with additional superadmin role in user_roles can delete cross-school user", () => {
+    const caller: ProfileLike = { id: "u-teacher-sa", role: "teacher", school_id: "school-A", email: "tsa@x.com" };
+    const d = evaluateDeletePermission(caller, student({ school_id: "school-B" }), ["teacher", "superadmin"]);
+    assertEquals(d.allowed, true);
+});
+
+Deno.test("evaluateAccountDisposability: blocks hard delete if target has other roles", () => {
+    const d1 = evaluateAccountDisposability(["student", "teacher"], false, false);
+    assertEquals(d1.disposable, false);
+
+    const d2 = evaluateAccountDisposability(["student", "parent"], false, false);
+    assertEquals(d2.disposable, false);
+});
+
+Deno.test("evaluateAccountDisposability: blocks hard delete if target has employees record", () => {
+    const d = evaluateAccountDisposability(["student"], true, false);
+    assertEquals(d.disposable, false);
+});
+
+Deno.test("evaluateAccountDisposability: blocks hard delete if target has family relationships", () => {
+    const d = evaluateAccountDisposability(["student"], false, true);
+    assertEquals(d.disposable, false);
+});
+
+Deno.test("evaluateAccountDisposability: allows hard delete for clean isolated student duplicate", () => {
+    const d = evaluateAccountDisposability(["student"], false, false);
+    assertEquals(d.disposable, true);
+});

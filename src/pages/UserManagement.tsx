@@ -1708,7 +1708,6 @@ const UserDrawer: React.FC<{
             if (error) throw error;
 
             toast.success(`Student status updated to ${studentStatus}. Academic history preserved.`);
-            setIsActive(studentStatus === 'active');
             onSaved();
         } catch (err: unknown) {
             toast.error(err instanceof Error ? err.message : 'Failed to update student status');
@@ -3094,10 +3093,6 @@ const UserDrawer: React.FC<{
                             onSaved();
                             onClose();
                         }}
-                        onArchiveStudent={() => {
-                            setDeleteOpen(false);
-                            setStudentStatus('withdrawn');
-                        }}
                     />
                 </>
             )}
@@ -3327,15 +3322,20 @@ const DeleteUserConfirmModal: React.FC<{
     schoolName: string;
     onDeleted: () => void;
     onArchiveStudent?: () => void;
-}> = ({ isOpen, onClose, user, schoolName, onDeleted, onArchiveStudent }) => {
+}> = ({ isOpen, onClose, user, schoolName, onDeleted }) => {
     const [text, setText] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
     const [eligibilityChecking, setEligibilityChecking] = useState(false);
     const [eligibility, setEligibility] = useState<{ can_delete: boolean; reasons: string[]; summary: string } | null>(null);
+    const [archiveMode, setArchiveMode] = useState(false);
+    const [archiveStatus, setArchiveStatus] = useState('withdrawn');
+    const [archiveReason, setArchiveReason] = useState('Archived instead of hard delete due to dependencies');
+    const [archiveNotes, setArchiveNotes] = useState('');
+    const [archivingBusy, setArchivingBusy] = useState(false);
     const inputRef = React.useRef<HTMLInputElement>(null);
 
-    const isStudent = user.role === 'student';
+    const isStudent = user.role === 'student' || (user.roles && user.roles.includes('student'));
     const schoolSlug = schoolName ? slugifyClient(schoolName) : 'platform';
     const expected = `${schoolSlug}/${(user.full_name || '').trim().toLowerCase()}`;
     const typed = text.trim().toLowerCase();
@@ -3351,7 +3351,7 @@ const DeleteUserConfirmModal: React.FC<{
 
     useEffect(() => {
         if (isOpen) {
-            setText(''); setErr('');
+            setText(''); setErr(''); setArchiveMode(false);
             if (isStudent && user.school_id) {
                 setEligibilityChecking(true);
                 (async () => {
@@ -3411,6 +3411,31 @@ const DeleteUserConfirmModal: React.FC<{
         }
     };
 
+    const handleConfirmArchive = async () => {
+        if (!user.school_id) return;
+        setArchivingBusy(true);
+        setErr('');
+        try {
+            const { error } = await supabase.rpc('fn_set_student_status', {
+                _school_id: user.school_id,
+                _student_id: user.id,
+                _new_status: archiveStatus,
+                _reason: archiveReason || null,
+                _notes: archiveNotes || null,
+            });
+            if (error) throw error;
+            toast.success(`Student status updated to ${archiveStatus}. Academic history preserved.`);
+            onDeleted();
+            onClose();
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Failed to archive student';
+            setErr(msg);
+            toast.error(msg);
+        } finally {
+            setArchivingBusy(false);
+        }
+    };
+
     const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter' && matches && !busy && (!eligibility || eligibility.can_delete)) handleDelete();
         if (e.key === 'Escape' && !busy) onClose();
@@ -3429,7 +3454,7 @@ const DeleteUserConfirmModal: React.FC<{
                 <>
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={busy ? undefined : onClose}
+                        onClick={busy || archivingBusy ? undefined : onClose}
                         className="fixed inset-0 z-[80] bg-stone-900/50 backdrop-blur-sm"
                     />
                     <motion.div
@@ -3444,14 +3469,90 @@ const DeleteUserConfirmModal: React.FC<{
                                     <AlertTriangle className="w-5 h-5 text-rose-600" />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-bold text-foreground">Permanently delete user?</h3>
+                                    <h3 className="text-lg font-bold text-foreground">
+                                        {archiveMode ? 'Archive Student' : 'Permanently delete user?'}
+                                    </h3>
                                     <p className="text-xs text-muted mt-0.5">
-                                        This will remove <strong>{user.full_name}</strong> ({user.email}) and all related access. This action cannot be undone.
+                                        {archiveMode
+                                            ? `Confirm departure status transition for ${user.full_name}. Academic records will be preserved.`
+                                            : `This will remove ${user.full_name} (${user.email}) and all related access. This action cannot be undone.`}
                                     </p>
                                 </div>
                             </div>
 
-                            {eligibilityChecking ? (
+                            {archiveMode ? (
+                                <div className="space-y-4">
+                                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 space-y-3">
+                                        <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
+                                            <GraduationCap className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                                            <span>Confirm Departure & Archival</span>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-[11px] font-semibold text-amber-950 block mb-1.5">New Student Status</label>
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                                {(['withdrawn', 'transferred', 'graduated', 'inactive'] as const).map(st => (
+                                                    <button
+                                                        key={st}
+                                                        type="button"
+                                                        onClick={() => setArchiveStatus(st)}
+                                                        className={`py-1.5 px-2 rounded-xl text-xs font-semibold capitalize border transition-all ${
+                                                            archiveStatus === st
+                                                                ? 'bg-amber-700 text-white border-amber-700 shadow-xs'
+                                                                : 'bg-white text-stone-700 border-amber-200 hover:bg-amber-100/60'
+                                                        }`}
+                                                    >
+                                                        {st}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-[11px] font-semibold text-amber-950 block mb-1">Departure Reason</label>
+                                            <input
+                                                type="text"
+                                                value={archiveReason}
+                                                onChange={e => setArchiveReason(e.target.value)}
+                                                placeholder="Reason (e.g. Relocated, Graduated, Duplicate Remediation)"
+                                                className="clay-input w-full text-xs bg-white"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="text-[11px] font-semibold text-amber-950 block mb-1">Notes (optional)</label>
+                                            <input
+                                                type="text"
+                                                value={archiveNotes}
+                                                onChange={e => setArchiveNotes(e.target.value)}
+                                                placeholder="Optional administrative notes"
+                                                className="clay-input w-full text-xs bg-white"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {err && <div className="p-2.5 bg-red-50 text-red-700 text-xs font-medium rounded-lg border border-red-100">{err}</div>}
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setArchiveMode(false); setErr(''); }}
+                                            disabled={archivingBusy}
+                                            className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-muted hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                        >
+                                            Back
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleConfirmArchive}
+                                            disabled={archivingBusy}
+                                            className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                        >
+                                            {archivingBusy ? 'Archiving…' : 'Confirm Archive'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : eligibilityChecking ? (
                                 <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-center py-6 text-xs text-muted">
                                     Checking academic record dependencies…
                                 </div>
@@ -3463,7 +3564,7 @@ const DeleteUserConfirmModal: React.FC<{
                                             <span>Permanent Deletion Blocked</span>
                                         </div>
                                         <p className="text-xs text-amber-900/90 leading-relaxed">
-                                            This student cannot be permanently deleted because active academic or financial records exist:
+                                            This student cannot be permanently deleted because active or historical records exist:
                                         </p>
                                         <ul className="list-disc list-inside text-[11px] font-semibold text-amber-950 space-y-0.5">
                                             {eligibility.reasons.map((r, i) => (
@@ -3482,18 +3583,13 @@ const DeleteUserConfirmModal: React.FC<{
                                         >
                                             Close
                                         </button>
-                                        {onArchiveStudent && (
-                                            <button
-                                                onClick={() => {
-                                                    onClose();
-                                                    onArchiveStudent();
-                                                }}
-                                                className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition-colors inline-flex items-center justify-center gap-1.5"
-                                            >
-                                                <GraduationCap className="w-4 h-4" />
-                                                Archive Student
-                                            </button>
-                                        )}
+                                        <button
+                                            onClick={() => setArchiveMode(true)}
+                                            className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition-colors inline-flex items-center justify-center gap-1.5"
+                                        >
+                                            <GraduationCap className="w-4 h-4" />
+                                            Archive Student
+                                        </button>
                                     </div>
                                 </div>
                             ) : (
