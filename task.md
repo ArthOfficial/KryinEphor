@@ -112,3 +112,31 @@
   - Documented family-login container model, 2-hour session lifetime, and Auth-session binding.
 - [x] **Item 39 & 40: Commits & Repository Cleanliness**
   - Clean git commits pushed to `origin/main`. Working tree clean.
+
+---
+
+# Targeted Post-Hardening Security Fixes (Items 1–11) [COMPLETED]
+
+- [x] **1. delete_user must reject inactive/deleted Admin callers**
+  - Added authoritative verification in `supabase/functions/delete_user/index.ts` rejecting inactive (`is_active === false`) or soft-deleted (`deleted_at !== null`) admin callers with HTTP 403.
+- [x] **2. fn_setup_or_change_staff_pin: enforce Admin same-school tenant boundary**
+  - Added strict tenant boundary check ensuring non-superadmin caller must belong to target staff's `school_id`. Cross-school calls raise exception.
+- [x] **3. fn_revoke_staff_session: enforce Admin same-school tenant boundary**
+  - Added strict tenant check ensuring caller admin belongs to the session owner's school. Cross-school session revocations blocked.
+- [x] **4. fn_admin_set_account_active: School Admin must never act on NULL-school/platform profiles**
+  - Blocked school admins from activating/deactivating platform/system profiles with `school_id IS NULL`. Restricted exclusively to superadmins.
+- [x] **5. create_tenant_admin: rollback must restore existing guardian mutations if later Student setup fails**
+  - Tracked previous primary link ID and original parent role presence; rollback restores previous primary link (`is_primary = true`) and cleans up dangling parent role if no active children remain.
+- [x] **6. Guardian relationship value must be server validated**
+  - Enforced strict canonical relationship whitelist on `fn_link_student_guardian`, `fn_update_guardian_relationship`, and `create_tenant_admin`. Invalid strings rejected with `Invalid relationship`.
+- [x] **7. Revoke/fail legacy staff unlock sessions with NULL auth_session_id**
+  - `fn_validate_staff_session` rejects any legacy session lacking `auth_session_id`, marking `is_revoked = true` with reason `LEGACY_NULL_AUTH_SESSION`.
+- [x] **8. Teacher-removal session revoke should populate revoked_at**
+  - `fn_disable_teacher_access_internal` explicitly populates `is_revoked = true`, `revoked_at = now()`, and `revoked_reason = 'teacher_access_disabled'`.
+- [x] **9. Verify actual live homework SELECT policy is Staff-unlocked + assignment-scoped for Teachers**
+  - Verified live PostgreSQL RLS policy `homework_select_policy` requires active staff unlock session and assigned class scope for teachers.
+- [x] **10. Regenerate/update Supabase TypeScript RPC types; remove `(supabase.rpc as any)` workaround**
+  - Added typed declarations for `fn_admin_set_account_active`, `fn_audit_duplicate_decision`, and `fn_revoke_staff_session` in `src/integrations/supabase/types.ts`; removed `(supabase.rpc as any)` cast in `src/pages/UserManagement.tsx`.
+- [x] **11. Correct "32/32 / fully completed" documentation claims**
+  - Updated `IDENTITY_ACCESS_IMPLEMENTATION_CHECKLIST.md`, `docs/IDENTITY_AND_ACCESS_ARCHITECTURE.md`, and `task.md` with complete evidence-based verification of all 11 targeted items.
+

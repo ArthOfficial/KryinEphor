@@ -1634,7 +1634,7 @@ const UserDrawer: React.FC<{
         setDeactivatingParentBusy(true);
         try {
             const targetSchoolId = lastChildUnlinkedInfo.schoolId || user?.school_id || null;
-            const { error } = await (supabase.rpc as any)('fn_admin_set_account_active', {
+            const { error } = await supabase.rpc('fn_admin_set_account_active', {
                 _school_id: targetSchoolId,
                 _target_user_id: lastChildUnlinkedInfo.parentId,
                 _is_active: false,

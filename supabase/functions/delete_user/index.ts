@@ -74,8 +74,11 @@ Deno.serve(async (req: Request) => {
 
         // Authoritative caller role derivation (primary profile role + user_roles)
         const { data: callerProfile } = await admin
-            .from("profiles").select("role, school_id").eq("id", caller.id).single();
+            .from("profiles").select("role, school_id, is_active, deleted_at").eq("id", caller.id).single();
         if (!callerProfile) return json({ error: "Caller profile not found" }, 403);
+        if (callerProfile.is_active === false || callerProfile.deleted_at) {
+            return json({ error: "Forbidden: caller account is inactive or deleted" }, 403);
+        }
 
         const { data: callerUserRoles } = await admin
             .from("user_roles").select("role").eq("user_id", caller.id);

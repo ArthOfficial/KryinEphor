@@ -208,6 +208,19 @@ Deno.serve(async (req: Request) => {
                         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
                     });
                 }
+                const allowedRelationships = [
+                    'mother', 'father', 'guardian', 'other authorized guardian',
+                    'primary guardian', 'emergency contact', 'son', 'daughter',
+                    'ward', 'parent', 'self_student'
+                ];
+                const relToCheck = (payload.guardianRelationship || 'parent').trim().toLowerCase();
+                if (!allowedRelationships.includes(relToCheck)) {
+                    return new Response(JSON.stringify({ 
+                        error: `Invalid guardian relationship: "${payload.guardianRelationship}". Must be one of: Mother, Father, Guardian, Other authorized guardian, Primary guardian, Emergency contact, Son, Daughter, Ward, Parent, self_student.` 
+                    }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
                 const { data: guardian, error: guardianErr } = await supabaseAdmin
                     .from('profiles')
                     .select('id, school_id, full_name, role, is_active, deleted_at')
@@ -229,6 +242,31 @@ Deno.serve(async (req: Request) => {
                         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
                     });
                 }
+            }
+        }
+
+        // Track guardian state before any modifications to allow transactional rollback
+        let previousPrimaryLinkId: string | null = null;
+        let guardianHadParentRole = false;
+        if (payload.guardianId && schoolId) {
+            const { data: existingRoles } = await supabaseAdmin
+                .from('user_roles')
+                .select('role')
+                .eq('user_id', payload.guardianId)
+                .eq('role', 'parent')
+                .maybeSingle();
+            guardianHadParentRole = !!existingRoles;
+
+            const { data: existingPrimaryLink } = await supabaseAdmin
+                .from('parent_student')
+                .select('id')
+                .eq('parent_id', payload.guardianId)
+                .eq('school_id', schoolId)
+                .eq('status', 'active')
+                .eq('is_primary', true)
+                .maybeSingle();
+            if (existingPrimaryLink) {
+                previousPrimaryLinkId = existingPrimaryLink.id;
             }
         }
 
@@ -269,6 +307,30 @@ Deno.serve(async (req: Request) => {
                 await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
                 await supabaseAdmin.from('profiles').delete().eq('id', userId);
                 await supabaseAdmin.auth.admin.deleteUser(userId);
+
+                // Restore guardian state if guardian was mutated
+                if (payload.guardianId) {
+                    if (previousPrimaryLinkId) {
+                        await supabaseAdmin
+                            .from('parent_student')
+                            .update({ is_primary: true, updated_at: new Date().toISOString() })
+                            .eq('id', previousPrimaryLinkId);
+                    }
+                    if (!guardianHadParentRole) {
+                        const { count: remainingChildren } = await supabaseAdmin
+                            .from('parent_student')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('parent_id', payload.guardianId)
+                            .eq('status', 'active');
+                        if (!remainingChildren || remainingChildren === 0) {
+                            await supabaseAdmin
+                                .from('user_roles')
+                                .delete()
+                                .eq('user_id', payload.guardianId)
+                                .eq('role', 'parent');
+                        }
+                    }
+                }
             } catch (rbErr) {
                 console.error(`Rollback error for user ${userId}:`, rbErr);
             }

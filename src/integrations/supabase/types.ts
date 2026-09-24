@@ -5559,9 +5559,34 @@ export type Database = {
           must_change?: boolean
         }
       }
+      fn_admin_set_account_active: {
+        Args: {
+          _target_user_id: string
+          _is_active: boolean
+          _reason?: string | null
+          _school_id?: string | null
+        }
+        Returns: Json
+      }
+      fn_audit_duplicate_decision: {
+        Args: {
+          _school_id: string
+          _resolution: string
+          _candidate_id?: string | null
+          _candidate_name?: string | null
+          _match_reasons?: string[] | null
+          _input_name?: string | null
+          _input_email?: string | null
+          _detail_notes?: string | null
+        }
+        Returns: Json
+      }
       fn_revoke_staff_session: {
-        Args: { _session_token: string }
-        Returns: { success: boolean }
+        Args: {
+          _session_token: string
+          _reason?: string
+        }
+        Returns: Json
       }
       fn_is_staff_unlocked: {
         Args: { _school_id: string; _session_token: string }

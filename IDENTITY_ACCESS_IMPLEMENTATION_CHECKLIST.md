@@ -2863,8 +2863,22 @@ Most importantly:
 
 7. **Item 37: Type Synchronization**
    - Verified no deprecated or removed RPC signatures exist in runtime code or Supabase TypeScript definitions.
+   - Synchronized `fn_admin_set_account_active`, `fn_audit_duplicate_decision`, and `fn_revoke_staff_session` (`_reason` optional).
+   - Removed `(supabase.rpc as any)` workaround in `UserManagement.tsx`.
 
-8. **Item 38: Documentation Accuracy**
+8. **Item 38: Documentation Accuracy & Targeted Hardening (Items 1–11 Fully Resolved)**
    - Corrected session token lifetime to 2 hours.
    - Accurately described Auth-session binding rather than device binding.
    - Formulated the auth model as an intentional family-login container rather than claiming every real-world human has a separate `auth.users` row.
+   - Verified and completed all 11 Post-Hardening targeted issues:
+     1. `delete_user` Edge Function rejects inactive/deleted Admin callers with 403 Forbidden.
+     2. `fn_setup_or_change_staff_pin` enforces strict same-school tenant boundary for Admin caller vs target staff.
+     3. `fn_revoke_staff_session` enforces strict same-school tenant boundary for Admin caller vs session owner.
+     4. `fn_admin_set_account_active` strictly blocks School Admins from modifying NULL-school / platform-level profiles.
+     5. `create_tenant_admin` rollback reliably restores existing guardian mutations (`is_primary` restoration, parent role cleanup) if later student setup fails.
+     6. Guardian relationship values are strictly validated on server across `fn_link_student_guardian`, `fn_update_guardian_relationship`, and `create_tenant_admin`.
+     7. `fn_validate_staff_session` automatically revokes and fails legacy unlock sessions with NULL `auth_session_id` (`LEGACY_NULL_AUTH_SESSION`).
+     8. `fn_disable_teacher_access_internal` explicitly populates `revoked_at = now()` and `revoked_reason = 'teacher_access_disabled'` on session revocation.
+     9. Live PostgreSQL `homework` SELECT RLS policy strictly verified to enforce staff-unlocked + assignment-scoped access for teachers.
+     10. Supabase TypeScript RPC definitions regenerated and strictly typed; `(supabase.rpc as any)` workaround eliminated.
+     11. Documentation verified and claims synchronized with live test evidence.

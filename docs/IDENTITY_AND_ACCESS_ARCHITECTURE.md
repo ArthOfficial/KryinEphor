@@ -186,3 +186,44 @@ The identity, access control, and staff security layer has been verified against
 | **O. Multi-Work Persona** | Parent + Accountant / Teacher + Receptionist | All valid authorized work personas rendered and selectable | **VERIFIED** |
 | **P. Audit Tampering** | Fake candidate name sent by client | Audit records canonical DB name under `canonical_candidate`; client text isolated | **VERIFIED** |
 
+---
+
+## 8. Post-Hardening Targeted Security Fixes (Items 1–11)
+
+In addition to the baseline test matrix, the following 11 targeted hardening items were implemented and verified against the live PostgreSQL database and production test suites:
+
+1. **`delete_user` Edge Function Caller Verification (Item 1)**
+   - Prior behavior: Admin status checked solely via role lookup.
+   - Hardened behavior: Caller `profiles.is_active === false` or non-null `callerProfile.deleted_at` immediately terminates with HTTP 403 `Forbidden: caller account is inactive or deleted`.
+
+2. **`fn_setup_or_change_staff_pin` Tenant Boundary (Item 2)**
+   - Hardened behavior: Authoritative check verifies that non-superadmin caller must belong to the exact same `school_id` as the target staff employee. Cross-school PIN mutation attempts fail with `Access denied`.
+
+3. **`fn_revoke_staff_session` Tenant Boundary (Item 3)**
+   - Hardened behavior: Session token lookup verifies that the calling admin belongs to the same `school_id` as the session owner. Cross-school session revocations fail with `Access denied`.
+
+4. **`fn_admin_set_account_active` Platform Protection (Item 4)**
+   - Hardened behavior: School admins cannot alter platform/system profiles with NULL `school_id`. Only global superadmins may manage NULL-school accounts.
+
+5. **`create_tenant_admin` Rollback Invariants (Item 5)**
+   - Hardened behavior: When a student setup fails after linking an existing guardian, the rollback routine restores the previous primary child link (`is_primary = true`) and removes the `parent` role if the guardian has no remaining active children.
+
+6. **Guardian Relationship Server Validation (Item 6)**
+   - Hardened behavior: Strict server-side whitelist (`mother`, `father`, `guardian`, `other authorized guardian`, `primary guardian`, `emergency contact`, `son`, `daughter`, `ward`, `parent`, `self_student`) enforced across `fn_link_student_guardian`, `fn_update_guardian_relationship`, and `create_tenant_admin`. Arbitrary strings are rejected with `Invalid relationship`.
+
+7. **Legacy Staff Unlock Session Revocation (Item 7)**
+   - Hardened behavior: Any legacy unlock session with `auth_session_id IS NULL` is immediately rejected by `fn_validate_staff_session`, flagged as `is_revoked = true` with reason `LEGACY_NULL_AUTH_SESSION`.
+
+8. **Teacher Removal Session Revocation Audit (Item 8)**
+   - Hardened behavior: `fn_disable_teacher_access_internal` explicitly sets `is_revoked = true`, `revoked_at = now()`, and `revoked_reason = 'teacher_access_disabled'` on all active staff unlock sessions belonging to the disabled teacher.
+
+9. **Homework RLS Policy Verification (Item 9)**
+   - Hardened behavior: Verified live RLS policy on `public.homework` strictly requires active staff unlock and assignment scoping (`class_id IN (SELECT class_id FROM classes WHERE teacher_id = auth.uid()) OR teacher_id = auth.uid()`). Unlocked teachers cannot read unassigned classes.
+
+10. **Supabase TypeScript RPC Definitions (Item 10)**
+    - Hardened behavior: Synchronized `Database['public']['Functions']` in `src/integrations/supabase/types.ts` for `fn_admin_set_account_active`, `fn_audit_duplicate_decision`, and `fn_revoke_staff_session`. Removed `(supabase.rpc as any)` cast in `src/pages/UserManagement.tsx`.
+
+11. **Documentation Claims Accuracy (Item 11)**
+    - Verified all claims against automated test suites and live database checks. All items tested and passing.
+
+
