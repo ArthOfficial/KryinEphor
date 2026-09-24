@@ -1633,10 +1633,13 @@ const UserDrawer: React.FC<{
         if (!lastChildUnlinkedInfo) return;
         setDeactivatingParentBusy(true);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ is_active: false, updated_at: new Date().toISOString() })
-                .eq('id', lastChildUnlinkedInfo.parentId);
+            const targetSchoolId = lastChildUnlinkedInfo.schoolId || user?.school_id || null;
+            const { error } = await (supabase.rpc as any)('fn_admin_set_account_active', {
+                _school_id: targetSchoolId,
+                _target_user_id: lastChildUnlinkedInfo.parentId,
+                _is_active: false,
+                _reason: 'Account deactivated after last child unlinked',
+            });
             if (error) throw error;
 
             toast.success(`Account for ${lastChildUnlinkedInfo.parentName} deactivated.`);

@@ -55,7 +55,9 @@ images/
 phase4a-migrations-review/
 private/
 scripts/
-supabase/
+supabase/*
+!supabase/migrations/
+!supabase/functions/
 tests/
 videos/
 build-errors.txt
@@ -69,3 +71,4 @@ readme.md
 report-final.md
 task.md
 /TheNewBackupV022/
+scratch/

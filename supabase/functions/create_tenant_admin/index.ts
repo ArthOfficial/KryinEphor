@@ -200,6 +200,36 @@ Deno.serve(async (req: Request) => {
                     });
                 }
             }
+
+            // Upfront validation for guardian linking BEFORE creating Auth user
+            if (payload.guardianId) {
+                if (targetRole !== 'student') {
+                    return new Response(JSON.stringify({ error: 'Only student accounts can be linked to a guardian.' }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
+                const { data: guardian, error: guardianErr } = await supabaseAdmin
+                    .from('profiles')
+                    .select('id, school_id, full_name, role, is_active, deleted_at')
+                    .eq('id', payload.guardianId)
+                    .maybeSingle();
+
+                if (guardianErr || !guardian) {
+                    return new Response(JSON.stringify({ error: 'Selected guardian account was not found.' }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
+                if (guardian.school_id !== schoolId) {
+                    return new Response(JSON.stringify({ error: 'Selected guardian does not belong to this school.' }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
+                if (guardian.deleted_at) {
+                    return new Response(JSON.stringify({ error: 'Selected guardian account is deleted.' }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
+            }
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -230,6 +260,20 @@ Deno.serve(async (req: Request) => {
             });
         }
 
+        const rollbackUser = async (userId: string) => {
+            try {
+                await supabaseAdmin.from('class_enrollments').delete().eq('student_id', userId);
+                await supabaseAdmin.from('parent_student').delete().eq('student_id', userId);
+                await supabaseAdmin.from('employees').delete().eq('profile_id', userId);
+                await supabaseAdmin.from('memberships').delete().eq('user_id', userId);
+                await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
+                await supabaseAdmin.from('profiles').delete().eq('id', userId);
+                await supabaseAdmin.auth.admin.deleteUser(userId);
+            } catch (rbErr) {
+                console.error(`Rollback error for user ${userId}:`, rbErr);
+            }
+        };
+
         // ═══════════════════════════════════════════════════════════════
         // UPSERT PROFILE — Belt-and-suspenders to ensure correct data
         // even if the trigger didn't fire or had issues.
@@ -248,8 +292,7 @@ Deno.serve(async (req: Request) => {
             .upsert(profilePayload, { onConflict: 'id' });
 
         if (profileError) {
-            // Rollback: delete the auth user since profile failed
-            await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
+            await rollbackUser(userData.user.id);
             return new Response(JSON.stringify({ error: `Profile creation failed: ${profileError.message}` }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 400,
@@ -261,8 +304,7 @@ Deno.serve(async (req: Request) => {
                 .from('user_roles')
                 .insert({ user_id: userData.user.id, role: 'parent' });
             if (parentRoleError) {
-                await supabaseAdmin.from('profiles').delete().eq('id', userData.user.id);
-                await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
+                await rollbackUser(userData.user.id);
                 return new Response(JSON.stringify({ error: `Combined account setup failed: ${parentRoleError.message}. User rolled back.` }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                     status: 400,
@@ -272,9 +314,6 @@ Deno.serve(async (req: Request) => {
 
         // ═══════════════════════════════════════════════════════════════
         // CREATE MEMBERSHIP — FATAL for tenant users (Phase 3 hardening)
-        // A tenant user without a membership row is an orphan and breaks
-        // RBAC. If membership creation fails, we roll back the auth user
-        // and profile so the workspace is never left in a partial state.
         // ═══════════════════════════════════════════════════════════════
         if (schoolId) {
             const { data: systemRole } = await supabaseAdmin
@@ -293,8 +332,18 @@ Deno.serve(async (req: Request) => {
                     status: 'active'
                 }, { onConflict: 'user_id,school_id' });
 
+            if (membershipError) {
+                await rollbackUser(userData.user.id);
+                return new Response(JSON.stringify({
+                    error: `Membership creation failed: ${membershipError.message}. User rolled back.`
+                }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 400,
+                });
+            }
+
             if (targetRole === 'teacher') {
-                await supabaseAdmin
+                const { error: empError } = await supabaseAdmin
                     .from('employees')
                     .upsert({
                         profile_id: userData.user.id,
@@ -304,11 +353,18 @@ Deno.serve(async (req: Request) => {
                         status: 'active',
                         staff_person_name: typeof payload.staffPersonName === 'string' && payload.staffPersonName.trim() ? payload.staffPersonName.trim() : fullName,
                     }, { onConflict: 'profile_id,school_id' });
+
+                if (empError) {
+                    await rollbackUser(userData.user.id);
+                    return new Response(JSON.stringify({ error: `Staff profile setup failed: ${empError.message}. User rolled back.` }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
             }
 
             if (targetRole === 'student') {
                 // Self-link for combined single-child parent-student experience
-                await supabaseAdmin.from('parent_student').upsert({
+                const { error: selfLinkErr } = await supabaseAdmin.from('parent_student').upsert({
                     parent_id: userData.user.id,
                     student_id: userData.user.id,
                     school_id: schoolId,
@@ -317,82 +373,80 @@ Deno.serve(async (req: Request) => {
                     status: 'active',
                 }, { onConflict: 'parent_id,student_id' });
 
+                if (selfLinkErr) {
+                    await rollbackUser(userData.user.id);
+                    return new Response(JSON.stringify({ error: `Student self-link setup failed: ${selfLinkErr.message}. User rolled back.` }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+                    });
+                }
+
                 // Link to existing parent/guardian/staff account if specified
                 if (payload.guardianId) {
-                    const { data: guardian } = await supabaseAdmin
-                        .from('profiles')
-                        .select('id, school_id, roles, role')
-                        .eq('id', payload.guardianId)
+                    // Check other active children count for this guardian
+                    const { count: otherChildrenCount } = await supabaseAdmin
+                        .from('parent_student')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('parent_id', payload.guardianId)
                         .eq('school_id', schoolId)
-                        .single();
+                        .eq('status', 'active');
 
-                    if (guardian) {
-                        await supabaseAdmin.from('parent_student').upsert({
-                            parent_id: guardian.id,
-                            student_id: userData.user.id,
-                            school_id: schoolId,
-                            relationship: payload.guardianRelationship || 'parent',
-                            is_primary: payload.isPrimaryGuardian !== false,
-                            status: 'active',
-                            created_by: caller.id,
-                        }, { onConflict: 'parent_id,student_id' });
+                    // If guardian has no other active children, this child MUST be primary
+                    const shouldBePrimary = otherChildrenCount === 0 || payload.isPrimaryGuardian !== false;
 
-                        const existingRoles = Array.isArray(guardian.roles) && guardian.roles.length > 0
-                            ? guardian.roles
-                            : [guardian.role];
-                        const updatedRoles = existingRoles.includes('parent') ? existingRoles : [...existingRoles, 'parent'];
-                        await supabaseAdmin.from('profiles').update({
-                            roles: updatedRoles,
-                            is_active: true,
-                        }).eq('id', guardian.id);
+                    // If this link is primary, demote any other active children of this guardian
+                    if (shouldBePrimary) {
+                        await supabaseAdmin
+                            .from('parent_student')
+                            .update({ is_primary: false, updated_at: new Date().toISOString() })
+                            .eq('parent_id', payload.guardianId)
+                            .eq('school_id', schoolId)
+                            .eq('status', 'active')
+                            .eq('is_primary', true);
+                    }
 
-                        // Ensure parent role is recorded in public.user_roles
-                        await supabaseAdmin.from('user_roles').upsert({
-                            user_id: guardian.id,
-                            role: 'parent'
-                        }, { onConflict: 'user_id,role' });
+                    // Upsert family link
+                    const { error: linkErr } = await supabaseAdmin.from('parent_student').upsert({
+                        parent_id: payload.guardianId,
+                        student_id: userData.user.id,
+                        school_id: schoolId,
+                        relationship: payload.guardianRelationship || 'parent',
+                        is_primary: shouldBePrimary,
+                        status: 'active',
+                        created_by: caller.id,
+                    }, { onConflict: 'parent_id,student_id' });
 
-                        // If primary guardian was selected, demote any other active children of this guardian atomically
-                        if (payload.isPrimaryGuardian !== false) {
-                            await supabaseAdmin
-                                .from('parent_student')
-                                .update({ is_primary: false })
-                                .eq('parent_id', guardian.id)
-                                .eq('school_id', schoolId)
-                                .neq('student_id', userData.user.id)
-                                .eq('is_primary', true);
-                        }
-
-                        // Canonical audit entry in admin_action_audit
-                        await supabaseAdmin.from('admin_action_audit').insert({
-                            actor_id: caller.id,
-                            actor_role: callerProfile.role,
-                            school_id: schoolId,
-                            target_user_id: guardian.id,
-                            action: 'link_student_guardian',
-                            detail: {
-                                parent_id: guardian.id,
-                                student_id: userData.user.id,
-                                student_name: fullName,
-                                relationship: payload.guardianRelationship || 'parent',
-                                is_primary: payload.isPrimaryGuardian !== false,
-                                created_new_student: true
-                            }
+                    if (linkErr) {
+                        await rollbackUser(userData.user.id);
+                        return new Response(JSON.stringify({ error: `Guardian link failed: ${linkErr.message}. User rolled back.` }), {
+                            headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
                         });
                     }
-                }
-            }
 
-            if (membershipError) {
-                // Rollback: profile (CASCADE-linked to auth.users) + auth user
-                await supabaseAdmin.from('profiles').delete().eq('id', userData.user.id);
-                await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
-                return new Response(JSON.stringify({
-                    error: `Membership creation failed: ${membershipError.message}. User rolled back.`
-                }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    status: 400,
-                });
+                    // Record parent capability in user_roles ONLY
+                    // (NEVER modify profiles.roles and NEVER modify profiles.is_active!)
+                    await supabaseAdmin.from('user_roles').upsert({
+                        user_id: payload.guardianId,
+                        role: 'parent'
+                    }, { onConflict: 'user_id,role' });
+
+                    // Canonical audit entry in admin_action_audit
+                    await supabaseAdmin.from('admin_action_audit').insert({
+                        actor_id: caller.id,
+                        actor_role: callerProfile.role,
+                        school_id: schoolId,
+                        target_user_id: payload.guardianId,
+                        action: 'child linked',
+                        detail: {
+                            parent_id: payload.guardianId,
+                            student_id: userData.user.id,
+                            student_name: fullName,
+                            target_student_identity: userData.user.id,
+                            relationship: payload.guardianRelationship || 'parent',
+                            is_primary: shouldBePrimary,
+                            created_new_student: true
+                        }
+                    });
+                }
             }
 
             if (classId) {
@@ -400,8 +454,7 @@ Deno.serve(async (req: Request) => {
                     class_id: classId, school_id: schoolId, student_id: userData.user.id,
                 });
                 if (enrollmentError) {
-                    await supabaseAdmin.from('profiles').delete().eq('id', userData.user.id);
-                    await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
+                    await rollbackUser(userData.user.id);
                     return new Response(JSON.stringify({ error: `Class assignment failed: ${enrollmentError.message}. User rolled back.` }), {
                         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
                     });
