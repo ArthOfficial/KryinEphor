@@ -282,12 +282,15 @@ const EditRelationshipModal: React.FC<{
                             <option value="Mother">Mother</option>
                             <option value="Father">Father</option>
                             <option value="Guardian">Guardian</option>
+                            <option value="Legal Guardian">Legal Guardian</option>
+                            <option value="Parent">Parent</option>
+                            <option value="Son">Son</option>
+                            <option value="Daughter">Daughter</option>
+                            <option value="Child">Child</option>
+                            <option value="Ward">Ward</option>
                             <option value="Other authorized guardian">Other authorized guardian</option>
                             <option value="Primary guardian">Primary guardian</option>
                             <option value="Emergency contact">Emergency contact</option>
-                            <option value="Son">Son</option>
-                            <option value="Daughter">Daughter</option>
-                            <option value="Ward">Ward</option>
                         </select>
                     </div>
 
@@ -462,8 +465,12 @@ const AddChildModal: React.FC<{
                                 <option value="Ward">Ward</option>
                                 <option value="Mother">Mother</option>
                                 <option value="Father">Father</option>
+                                <option value="Guardian">Guardian</option>
                                 <option value="Legal Guardian">Legal Guardian</option>
                                 <option value="Parent">Parent</option>
+                                <option value="Other authorized guardian">Other authorized guardian</option>
+                                <option value="Primary guardian">Primary guardian</option>
+                                <option value="Emergency contact">Emergency contact</option>
                             </select>
                         </div>
                         <div className="flex items-center pt-3.5">
@@ -4559,10 +4566,18 @@ const AddUserModal: React.FC<{
                                                                             onChange={e => setGuardianRelationship(e.target.value)}
                                                                             className="clay-input w-full text-xs py-1.5 bg-stone-50"
                                                                         >
-                                                                            <option value="mother">Mother</option>
-                                                                            <option value="father">Father</option>
-                                                                            <option value="guardian">Legal Guardian</option>
-                                                                            <option value="parent">Parent</option>
+                                                                            <option value="Mother">Mother</option>
+                                                                            <option value="Father">Father</option>
+                                                                            <option value="Guardian">Guardian</option>
+                                                                            <option value="Legal Guardian">Legal Guardian</option>
+                                                                            <option value="Parent">Parent</option>
+                                                                            <option value="Son">Son</option>
+                                                                            <option value="Daughter">Daughter</option>
+                                                                            <option value="Child">Child</option>
+                                                                            <option value="Ward">Ward</option>
+                                                                            <option value="Other authorized guardian">Other authorized guardian</option>
+                                                                            <option value="Primary guardian">Primary guardian</option>
+                                                                            <option value="Emergency contact">Emergency contact</option>
                                                                         </select>
                                                                     </div>
                                                                     <div className="flex items-center pt-5">

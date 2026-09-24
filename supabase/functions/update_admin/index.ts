@@ -73,12 +73,19 @@ Deno.serve(async (req: Request) => {
 
         const { data: callerProfile } = await supabaseAdmin
             .from('profiles')
-            .select('role, school_id, full_name')
+            .select('role, school_id, full_name, is_active, deleted_at')
             .eq('id', caller.id)
             .single();
 
         if (!callerProfile) {
             return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 403,
+            });
+        }
+
+        if (callerProfile.is_active === false || callerProfile.deleted_at) {
+            return new Response(JSON.stringify({ error: 'Forbidden: caller account is inactive or deleted' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 403,
             });

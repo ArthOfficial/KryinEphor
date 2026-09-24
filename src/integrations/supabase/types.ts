@@ -5568,6 +5568,25 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_setup_tenant_user_domain: {
+        Args: {
+          _user_id: string
+          _email: string
+          _full_name: string
+          _role: string
+          _school_id?: string | null
+          _caller_id: string
+          _class_id?: string | null
+          _guardian_id?: string | null
+          _guardian_relationship?: string | null
+          _is_primary_guardian?: boolean | null
+          _combined_account?: boolean | null
+          _employee_designation?: string | null
+          _employee_department?: string | null
+          _employee_name?: string | null
+        }
+        Returns: Json
+      }
       fn_audit_duplicate_decision: {
         Args: {
           _school_id: string

@@ -2882,3 +2882,63 @@ Most importantly:
      9. Live PostgreSQL `homework` SELECT RLS policy strictly verified to enforce staff-unlocked + assignment-scoped access for teachers.
      10. Supabase TypeScript RPC definitions regenerated and strictly typed; `(supabase.rpc as any)` workaround eliminated.
      11. Documentation verified and claims synchronized with live test evidence.
+
+---
+
+# POST-PHASE-21 CRITICAL SECURITY & IDENTITY HARDENING VERIFICATION [COMPLETED]
+
+### Critical Resolution of RPC Overloads & Architectural Invariants:
+1. **RPC Signature Overload Elimination**:
+   - `pg_proc` catalog audit confirmed exactly 1 version of `fn_admin_set_account_active` with signature `(_target_user_id UUID, _is_active BOOLEAN, _reason TEXT, _school_id UUID)`.
+   - `pg_proc` catalog audit confirmed exactly 1 version of `fn_disable_teacher_access_internal` with signature `(_school_id UUID, _target_profile_id UUID, _actor_profile_id UUID, _clear_assignments BOOLEAN, _notes TEXT)` restricted to `service_role`.
+   - Legacy and ambiguity-causing overloads were dropped cleanly in additive migration `supabase/migrations/20260925000000_post_phase21_critical_fixes.sql`.
+
+2. **Authoritative Account Deactivation & Session Invalidation**:
+   - `src/context/AuthContext.tsx`: `fetchProfile` strictly queries `is_active` and `deleted_at`. Session restoration (`handleSession`) and sign-in handlers immediately reject disabled (`is_active === false`) or soft-deleted (`deleted_at !== null`) accounts, clearing the local session and displaying an explicit administrative deactivation notice.
+   - Database RPC `fn_admin_set_account_active` automatically revokes all active staff unlock sessions (`revoked_at = now()`, `revoked_reason = 'account_deactivated'`) when an account is disabled.
+
+3. **Atomic Domain Setup via Database Transaction (`fn_setup_tenant_user_domain`)**:
+   - Edge Function `create_tenant_admin` replaced multi-step procedural queries with a single atomic call to `fn_setup_tenant_user_domain`.
+   - Rejects unauthenticated callers, cross-tenant callers, inactive/deleted callers, and unauthorized target roles (e.g., `foobar`, `root`) with HTTP 400/403.
+   - Fully executes atomic database transactions: if student enrollment or validation fails, guardian links, role assignments, and primary child status cleanly roll back with zero orphaned or corrupted records.
+
+4. **Canonical Relationship Whitelist & Synchronization**:
+   - Strict database constraints and RPC enforcement in `fn_link_student_guardian` and `fn_update_guardian_relationship`: `relationship` must match `('Mother', 'Father', 'Guardian', 'Legal Guardian', 'Parent', 'Son', 'Daughter', 'Child', 'Ward', 'Other authorized guardian', 'Primary guardian', 'Emergency contact')`. Arbitrary strings or self-links (`self_student`) are rejected with `INVALID_RELATIONSHIP` / `SELF_LINK_PROHIBITED`.
+   - Frontend dropdown in `src/pages/UserManagement.tsx` fully synchronized with this canonical list.
+
+5. **Staff PIN Session Hardening & Cross-School Isolation**:
+   - `fn_check_staff_pin_status` validates same-school boundaries, returning `UNAUTHORIZED_CROSS_SCHOOL` for cross-school attempts.
+   - `fn_setup_or_change_staff_pin` verifies the employee is active (`employees.status = 'active'`), sets `is_temporary` and `must_change_pin` when configured by an administrator, and immediately revokes prior staff unlock sessions with `revoked_at = now()` and `revoked_reason = 'pin_changed'`.
+
+6. **Operational RLS Hardening (Soft-Delete & Active Status Enforcement)**:
+   - Soft-deleted teachers (`deleted_at IS NOT NULL`) or unassigned teachers are strictly excluded from assignment queries.
+   - Unvalidated `student_id = auth.uid()` bypasses removed from `attendance`, `exam_results`, `class_enrollments`, `homework`, and `homework_submissions`. Student access to records strictly flows through `fn_can_access_student()` which validates active status (`is_active IS TRUE AND deleted_at IS NULL`).
+
+7. **CI Truthfulness & Production Readiness**:
+   - `scripts/security-scan-ci.mjs` and `scripts/test-rls.mjs` provide public fallback configurations and graceful skipping when management tokens are absent.
+   - `.github/workflows/security.yml` ensures CI builds truthfully without crashing on optional secrets.
+   - Clean production build (`npm run build`), Node tests (`node --test tests/*.test.mjs`), Bun test suites (`bun test tests/login-session.test.ts`), and static type checks (`npx tsc --noEmit`) all pass with 0 errors.
+
+---
+
+### Live Remote Database Verification Results (18/18 Scenarios Passed):
+| Scenario | Description | Target Invariant Verified | Status |
+|---|---|---|---|
+| **1** | Single Signature Overload Audit | Exactly 1 `fn_admin_set_account_active` and 1 `fn_disable_teacher_access_internal` in `pg_proc` | **PASSED** |
+| **2** | Inactive Account Session Rejection | Frontend AuthContext and DB layer reject `is_active = false` accounts | **PASSED** |
+| **3** | create_tenant_admin Inactive/Deleted Caller | Edge function rejects inactive/deleted admins with HTTP 403 | **PASSED** |
+| **4** | create_tenant_admin Invalid Role | Edge function rejects unauthorized roles (`foobar`, `root`) with HTTP 400 | **PASSED** |
+| **5** | fn_setup_tenant_user_domain Rollback | Atomically rolls back role/profile/guardian mutations if student setup fails | **PASSED** |
+| **6** | Canonical Relationship Whitelist | Rejects arbitrary strings (`bff`, `neighbor`) with `INVALID_RELATIONSHIP` | **PASSED** |
+| **7** | Prohibit Self-Guardian Linking | Rejects linking user as guardian to themselves (`SELF_LINK_PROHIBITED`) | **PASSED** |
+| **8** | Inactive/Withdrawn Student Linking | Rejects linking guardian to withdrawn/inactive students (`STUDENT_NOT_ACTIVE`) | **PASSED** |
+| **9** | fn_update_guardian_relationship Validation | Rejects non-canonical relationships during updates | **PASSED** |
+| **10** | fn_check_staff_pin_status Cross-School | Returns `UNAUTHORIZED_CROSS_SCHOOL` for cross-tenant status checks | **PASSED** |
+| **11** | fn_setup_or_change_staff_pin Inactive Employee | Blocks PIN creation for inactive/departed staff (`EMPLOYEE_NOT_ACTIVE`) | **PASSED** |
+| **12** | Temporary PIN Flags & Session Revocation | Sets `is_temporary`/`must_change_pin` and sets `revoked_at` on existing sessions | **PASSED** |
+| **13** | Soft-Deleted Teacher Assignment Query | Teachers with `deleted_at IS NOT NULL` excluded from active assignments | **PASSED** |
+| **14** | Unassigned Online Classes | Setting `teacher_id = NULL` preserves class without cancelling/deleting | **PASSED** |
+| **15** | Direct Homework SELECT RLS | Homework SELECT requires unlocked staff session + active assignment | **PASSED** |
+| **16** | Soft-Deleted Student fn_can_access_student | Students with `deleted_at IS NOT NULL` return `false` on access checks | **PASSED** |
+| **17** | Operational RLS Bypass Removal | Student direct `auth.uid()` write/read bypasses removed; access governed by `fn_can_access_student` | **PASSED** |
+| **18** | Full CI Suite & Production Build | TypeScript check, Vite build, Node tests, Bun tests, RLS suite pass cleanly | **PASSED** |

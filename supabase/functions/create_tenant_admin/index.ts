@@ -73,15 +73,22 @@ Deno.serve(async (req: Request) => {
             { auth: { autoRefreshToken: false, persistSession: false } }
         );
 
-        // Fetch caller profile to check role and school context
+        // Fetch caller profile to check role, active status, and school context
         const { data: callerProfile } = await supabaseAdmin
             .from('profiles')
-            .select('role, school_id')
+            .select('role, school_id, is_active, deleted_at')
             .eq('id', caller.id)
             .single();
 
         if (!callerProfile || (callerProfile.role !== 'superadmin' && callerProfile.role !== 'admin')) {
             return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 403,
+            });
+        }
+
+        if (callerProfile.is_active === false || callerProfile.deleted_at) {
+            return new Response(JSON.stringify({ error: 'Forbidden: caller account is inactive or deleted' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 403,
             });
@@ -109,9 +116,18 @@ Deno.serve(async (req: Request) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // ROLE VALIDATION — BEFORE any mutation (Fixes Problem #9)
+        // ROLE VALIDATION — BEFORE any mutation (Item 10)
+        // Explicitly reject invalid roles with HTTP 400. Never default 'foobar' -> 'admin'.
         // ═══════════════════════════════════════════════════════════════
-        const targetRole: ValidRole = (role && VALID_ROLES.includes(role)) ? role : 'admin';
+        if (role !== undefined && role !== null && role !== '') {
+            if (!VALID_ROLES.includes(role)) {
+                return new Response(JSON.stringify({ error: `Invalid role: '${role}'. Allowed: ${VALID_ROLES.join(', ')}` }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 400,
+                });
+            }
+        }
+        const targetRole: ValidRole = role || 'admin';
 
         if (targetRole !== 'admin' && !schoolId) {
             return new Response(JSON.stringify({ error: `${targetRole} users must be assigned to a school` }), {
@@ -209,14 +225,14 @@ Deno.serve(async (req: Request) => {
                     });
                 }
                 const allowedRelationships = [
-                    'mother', 'father', 'guardian', 'other authorized guardian',
-                    'primary guardian', 'emergency contact', 'son', 'daughter',
-                    'ward', 'parent', 'self_student'
+                    'mother', 'father', 'guardian', 'legal guardian', 'parent',
+                    'son', 'daughter', 'child', 'ward', 'other authorized guardian',
+                    'primary guardian', 'emergency contact'
                 ];
                 const relToCheck = (payload.guardianRelationship || 'parent').trim().toLowerCase();
-                if (!allowedRelationships.includes(relToCheck)) {
+                if (relToCheck === 'self_student' || !allowedRelationships.includes(relToCheck)) {
                     return new Response(JSON.stringify({ 
-                        error: `Invalid guardian relationship: "${payload.guardianRelationship}". Must be one of: Mother, Father, Guardian, Other authorized guardian, Primary guardian, Emergency contact, Son, Daughter, Ward, Parent, self_student.` 
+                        error: `Invalid guardian relationship: "${payload.guardianRelationship}". Must be one of: Mother, Father, Guardian, Legal Guardian, Parent, Son, Daughter, Child, Ward, Other authorized guardian, Primary guardian, Emergency contact.` 
                     }), {
                         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
                     });
@@ -245,30 +261,7 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        // Track guardian state before any modifications to allow transactional rollback
-        let previousPrimaryLinkId: string | null = null;
-        let guardianHadParentRole = false;
-        if (payload.guardianId && schoolId) {
-            const { data: existingRoles } = await supabaseAdmin
-                .from('user_roles')
-                .select('role')
-                .eq('user_id', payload.guardianId)
-                .eq('role', 'parent')
-                .maybeSingle();
-            guardianHadParentRole = !!existingRoles;
 
-            const { data: existingPrimaryLink } = await supabaseAdmin
-                .from('parent_student')
-                .select('id')
-                .eq('parent_id', payload.guardianId)
-                .eq('school_id', schoolId)
-                .eq('status', 'active')
-                .eq('is_primary', true)
-                .maybeSingle();
-            if (existingPrimaryLink) {
-                previousPrimaryLinkId = existingPrimaryLink.id;
-            }
-        }
 
         // ═══════════════════════════════════════════════════════════════
         // CREATE AUTH USER — Pass correct metadata (Fixes Problem #6, #37)
@@ -307,222 +300,42 @@ Deno.serve(async (req: Request) => {
                 await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
                 await supabaseAdmin.from('profiles').delete().eq('id', userId);
                 await supabaseAdmin.auth.admin.deleteUser(userId);
-
-                // Restore guardian state if guardian was mutated
-                if (payload.guardianId) {
-                    if (previousPrimaryLinkId) {
-                        await supabaseAdmin
-                            .from('parent_student')
-                            .update({ is_primary: true, updated_at: new Date().toISOString() })
-                            .eq('id', previousPrimaryLinkId);
-                    }
-                    if (!guardianHadParentRole) {
-                        const { count: remainingChildren } = await supabaseAdmin
-                            .from('parent_student')
-                            .select('id', { count: 'exact', head: true })
-                            .eq('parent_id', payload.guardianId)
-                            .eq('status', 'active');
-                        if (!remainingChildren || remainingChildren === 0) {
-                            await supabaseAdmin
-                                .from('user_roles')
-                                .delete()
-                                .eq('user_id', payload.guardianId)
-                                .eq('role', 'parent');
-                        }
-                    }
-                }
             } catch (rbErr) {
                 console.error(`Rollback error for user ${userId}:`, rbErr);
             }
         };
 
         // ═══════════════════════════════════════════════════════════════
-        // UPSERT PROFILE — Belt-and-suspenders to ensure correct data
-        // even if the trigger didn't fire or had issues.
+        // TRANSACTIONAL DOMAIN SETUP VIA RPC (Phase 21 hardening)
+        // Everything inside fn_setup_tenant_user_domain runs atomically.
+        // If anything fails (e.g. invalid class, invalid guardian, etc.),
+        // the DB transaction automatically rolls back.
         // ═══════════════════════════════════════════════════════════════
-        const profilePayload: Record<string, unknown> = {
-            id: userData.user.id,
-            email: email,
-            login_id: email,
-            full_name: fullName,
-            role: targetRole,
-        };
-        if (schoolId) profilePayload.school_id = schoolId;
+        const { error: domainError } = await supabaseAdmin.rpc('fn_setup_tenant_user_domain', {
+            _user_id: userData.user.id,
+            _email: email,
+            _full_name: fullName,
+            _role: targetRole,
+            _school_id: schoolId || null,
+            _caller_id: caller.id,
+            _class_id: classId || null,
+            _guardian_id: payload.guardianId || null,
+            _guardian_relationship: payload.guardianRelationship || 'Parent',
+            _is_primary_guardian: payload.isPrimaryGuardian !== undefined ? payload.isPrimaryGuardian : null,
+            _combined_account: !!combinedStudentParentAccount,
+            _employee_designation: typeof payload.designation === 'string' && payload.designation.trim() ? payload.designation.trim() : null,
+            _employee_department: typeof payload.department === 'string' && payload.department.trim() ? payload.department.trim() : null,
+            _employee_name: typeof payload.staffPersonName === 'string' && payload.staffPersonName.trim() ? payload.staffPersonName.trim() : null,
+        });
 
-        const { error: profileError } = await supabaseAdmin
-            .from('profiles')
-            .upsert(profilePayload, { onConflict: 'id' });
-
-        if (profileError) {
+        if (domainError) {
             await rollbackUser(userData.user.id);
-            return new Response(JSON.stringify({ error: `Profile creation failed: ${profileError.message}` }), {
+            return new Response(JSON.stringify({ error: `Domain setup failed: ${domainError.message}. User rolled back.` }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 400,
             });
         }
 
-        if (combinedStudentParentAccount) {
-            const { error: parentRoleError } = await supabaseAdmin
-                .from('user_roles')
-                .insert({ user_id: userData.user.id, role: 'parent' });
-            if (parentRoleError) {
-                await rollbackUser(userData.user.id);
-                return new Response(JSON.stringify({ error: `Combined account setup failed: ${parentRoleError.message}. User rolled back.` }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    status: 400,
-                });
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // CREATE MEMBERSHIP — FATAL for tenant users (Phase 3 hardening)
-        // ═══════════════════════════════════════════════════════════════
-        if (schoolId) {
-            const { data: systemRole } = await supabaseAdmin
-                .from('roles')
-                .select('id')
-                .eq('name', targetRole)
-                .eq('is_system', true)
-                .single();
-
-            const { error: membershipError } = await supabaseAdmin
-                .from('memberships')
-                .upsert({
-                    user_id: userData.user.id,
-                    school_id: schoolId,
-                    role_id: systemRole?.id || null,
-                    status: 'active'
-                }, { onConflict: 'user_id,school_id' });
-
-            if (membershipError) {
-                await rollbackUser(userData.user.id);
-                return new Response(JSON.stringify({
-                    error: `Membership creation failed: ${membershipError.message}. User rolled back.`
-                }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    status: 400,
-                });
-            }
-
-            if (targetRole === 'teacher') {
-                const { error: empError } = await supabaseAdmin
-                    .from('employees')
-                    .upsert({
-                        profile_id: userData.user.id,
-                        school_id: schoolId,
-                        designation: typeof payload.designation === 'string' && payload.designation.trim() ? payload.designation.trim() : 'Teacher',
-                        department: typeof payload.department === 'string' && payload.department.trim() ? payload.department.trim() : 'Academics',
-                        status: 'active',
-                        staff_person_name: typeof payload.staffPersonName === 'string' && payload.staffPersonName.trim() ? payload.staffPersonName.trim() : fullName,
-                    }, { onConflict: 'profile_id,school_id' });
-
-                if (empError) {
-                    await rollbackUser(userData.user.id);
-                    return new Response(JSON.stringify({ error: `Staff profile setup failed: ${empError.message}. User rolled back.` }), {
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
-                    });
-                }
-            }
-
-            if (targetRole === 'student') {
-                // Self-link for combined single-child parent-student experience
-                const { error: selfLinkErr } = await supabaseAdmin.from('parent_student').upsert({
-                    parent_id: userData.user.id,
-                    student_id: userData.user.id,
-                    school_id: schoolId,
-                    relationship: 'self_student',
-                    is_primary: true,
-                    status: 'active',
-                }, { onConflict: 'parent_id,student_id' });
-
-                if (selfLinkErr) {
-                    await rollbackUser(userData.user.id);
-                    return new Response(JSON.stringify({ error: `Student self-link setup failed: ${selfLinkErr.message}. User rolled back.` }), {
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
-                    });
-                }
-
-                // Link to existing parent/guardian/staff account if specified
-                if (payload.guardianId) {
-                    // Check other active children count for this guardian
-                    const { count: otherChildrenCount } = await supabaseAdmin
-                        .from('parent_student')
-                        .select('id', { count: 'exact', head: true })
-                        .eq('parent_id', payload.guardianId)
-                        .eq('school_id', schoolId)
-                        .eq('status', 'active');
-
-                    // If guardian has no other active children, this child MUST be primary
-                    const shouldBePrimary = otherChildrenCount === 0 || payload.isPrimaryGuardian !== false;
-
-                    // If this link is primary, demote any other active children of this guardian
-                    if (shouldBePrimary) {
-                        await supabaseAdmin
-                            .from('parent_student')
-                            .update({ is_primary: false, updated_at: new Date().toISOString() })
-                            .eq('parent_id', payload.guardianId)
-                            .eq('school_id', schoolId)
-                            .eq('status', 'active')
-                            .eq('is_primary', true);
-                    }
-
-                    // Upsert family link
-                    const { error: linkErr } = await supabaseAdmin.from('parent_student').upsert({
-                        parent_id: payload.guardianId,
-                        student_id: userData.user.id,
-                        school_id: schoolId,
-                        relationship: payload.guardianRelationship || 'parent',
-                        is_primary: shouldBePrimary,
-                        status: 'active',
-                        created_by: caller.id,
-                    }, { onConflict: 'parent_id,student_id' });
-
-                    if (linkErr) {
-                        await rollbackUser(userData.user.id);
-                        return new Response(JSON.stringify({ error: `Guardian link failed: ${linkErr.message}. User rolled back.` }), {
-                            headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
-                        });
-                    }
-
-                    // Record parent capability in user_roles ONLY
-                    // (NEVER modify profiles.roles and NEVER modify profiles.is_active!)
-                    await supabaseAdmin.from('user_roles').upsert({
-                        user_id: payload.guardianId,
-                        role: 'parent'
-                    }, { onConflict: 'user_id,role' });
-
-                    // Canonical audit entry in admin_action_audit
-                    await supabaseAdmin.from('admin_action_audit').insert({
-                        actor_id: caller.id,
-                        actor_role: callerProfile.role,
-                        school_id: schoolId,
-                        target_user_id: payload.guardianId,
-                        action: 'child linked',
-                        detail: {
-                            parent_id: payload.guardianId,
-                            student_id: userData.user.id,
-                            student_name: fullName,
-                            target_student_identity: userData.user.id,
-                            relationship: payload.guardianRelationship || 'parent',
-                            is_primary: shouldBePrimary,
-                            created_new_student: true
-                        }
-                    });
-                }
-            }
-
-            if (classId) {
-                const { error: enrollmentError } = await supabaseAdmin.from('class_enrollments').insert({
-                    class_id: classId, school_id: schoolId, student_id: userData.user.id,
-                });
-                if (enrollmentError) {
-                    await rollbackUser(userData.user.id);
-                    return new Response(JSON.stringify({ error: `Class assignment failed: ${enrollmentError.message}. User rolled back.` }), {
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
-                    });
-                }
-            }
-        }
 
         return new Response(JSON.stringify({ success: true, user: { id: userData.user.id, email } }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

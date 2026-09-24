@@ -56,9 +56,12 @@ Deno.serve(async (req: Request) => {
         });
 
         const { data: callerProfile } = await admin
-            .from('profiles').select('role').eq('id', caller.id).single();
+            .from('profiles').select('role, is_active, deleted_at').eq('id', caller.id).single();
         if (!callerProfile || callerProfile.role !== 'superadmin') {
             return json({ error: 'Forbidden: superadmin access required' }, 403);
+        }
+        if (callerProfile.is_active === false || callerProfile.deleted_at) {
+            return json({ error: 'Forbidden: caller account is inactive or deleted' }, 403);
         }
 
         let payload: Record<string, unknown>;

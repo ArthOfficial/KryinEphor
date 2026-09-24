@@ -9,8 +9,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
-const url = process.env.VITE_SUPABASE_URL;
-const anon = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const url = process.env.VITE_SUPABASE_URL || "https://qgefjcuulsofevmxfqxe.supabase.co";
+const anon = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnZWZqY3V1bHNvZmV2bXhmcXhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4Mzg4MTEsImV4cCI6MjA4NzQxNDgxMX0.npaMYsszoEeQHiDBxsZM784qyxhFuHXVNm-xIBkPJkA";
 if (!url || !anon) {
   console.error("Missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY");
   process.exit(2);

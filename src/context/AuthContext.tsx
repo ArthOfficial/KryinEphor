@@ -15,10 +15,18 @@ export { useAuth } from '../hooks/useAuth';
 /**
  * Fetch the user's profile (role, full_name, school) from the profiles table.
  */
-async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName: string; schoolId: string | null; schoolName: string | null; studentStatus?: string | null } | null> {
+async function fetchProfile(userId: string): Promise<{
+    role: UserRole;
+    fullName: string;
+    schoolId: string | null;
+    schoolName: string | null;
+    studentStatus?: string | null;
+    isActive: boolean;
+    deletedAt: string | null;
+} | null> {
     const { data, error } = await supabase
         .from('profiles')
-        .select('role, full_name, school_id, student_status, schools:school_id(name)')
+        .select('role, full_name, school_id, student_status, is_active, deleted_at, schools:school_id(name)')
         .eq('id', userId)
         .single();
 
@@ -35,6 +43,8 @@ async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName:
         full_name: string | null;
         school_id: string | null;
         student_status?: string | null;
+        is_active: boolean | null;
+        deleted_at: string | null;
         schools: { name: string } | { name: string }[] | null;
     };
     const schoolJoin = Array.isArray(row.schools) ? row.schools[0] : row.schools;
@@ -45,6 +55,8 @@ async function fetchProfile(userId: string): Promise<{ role: UserRole; fullName:
         schoolId: row.school_id ?? null,
         schoolName: schoolJoin?.name ?? null,
         studentStatus: row.student_status ?? null,
+        isActive: row.is_active !== false,
+        deletedAt: row.deleted_at ?? null,
     };
 }
 
@@ -172,6 +184,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const profile = await fetchProfile(supaUser.id);
 
         if (profile) {
+            // Authoritative account deactivation check: reject if inactive or deleted
+            if (profile.isActive === false || profile.deletedAt !== null) {
+                await logger.warn('auth', 'Session restored for deactivated/deleted account — signing out', {
+                    userId: supaUser.id,
+                    details: { isActive: profile.isActive, deletedAt: profile.deletedAt }
+                });
+                await supabase.auth.signOut();
+                setUser(null);
+                setRole(null);
+                setRoles([]);
+                setIsStaffUnlocked(false);
+                setStaffSessionToken(null);
+                setLinkedStudents([]);
+                setActiveStudentIdState(null);
+                setLoading(false);
+                window.location.href = '/';
+                return;
+            }
+
             setUser({
                 id: supaUser.id,
                 email: supaUser.email || '',
@@ -374,6 +405,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setLoading(false);
                 setIsTransitioning(false);
                 throw new Error('Account not configured. Contact your administrator.');
+            }
+
+            if (profile.isActive === false || profile.deletedAt !== null) {
+                await supabase.auth.signOut();
+                await logger.warn('auth', 'Login blocked for deactivated/deleted profile', {
+                    action: 'login',
+                    status: 'blocked',
+                    details: { email, userId: data.user.id, isActive: profile.isActive, deletedAt: profile.deletedAt },
+                    userId: data.user.id
+                });
+                setLoading(false);
+                setIsTransitioning(false);
+                throw new Error('This account has been deactivated. Please contact your school administrator.');
             }
 
             setUser({

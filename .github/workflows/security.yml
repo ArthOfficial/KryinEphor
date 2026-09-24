@@ -18,11 +18,12 @@ jobs:
         run: npm i --no-audit --no-fund @supabase/supabase-js
       - name: RLS smoke tests (anon)
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://qgefjcuulsofevmxfqxe.supabase.co' }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnZWZqY3V1bHNvZmV2bXhmcXhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4Mzg4MTEsImV4cCI6MjA4NzQxNDgxMX0.npaMYsszoEeQHiDBxsZM784qyxhFuHXVNm-xIBkPJkA' }}
         run: node scripts/test-rls.mjs
       - name: Supabase linter gate
+        if: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF || 'qgefjcuulsofevmxfqxe' }}
         run: node scripts/security-scan-ci.mjs

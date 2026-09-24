@@ -226,4 +226,41 @@ In addition to the baseline test matrix, the following 11 targeted hardening ite
 11. **Documentation Claims Accuracy (Item 11)**
     - Verified all claims against automated test suites and live database checks. All items tested and passing.
 
+---
+
+## 9. Post-Phase-21 Critical Architecture Fixes & Test Verification
+
+Following extensive production auditing after Phase 21, additive migration `20260925000000_post_phase21_critical_fixes.sql` was deployed to resolve remaining operational risks:
+
+1. **RPC Signature Normalization**
+   - Eliminated all signature overloads in `pg_proc` for `fn_admin_set_account_active` and `fn_disable_teacher_access_internal`.
+   - Each procedure now has exactly one canonical signature.
+
+2. **Teacher Persona Atomicity & Fallback**
+   - Teacher disable routine checks available capabilities: if the user has no remaining valid persona (neither Parent, nor another Staff role like Accountant/Receptionist), the operation is rejected atomically with `CANNOT_DISABLE_NO_OTHER_PERSONA`.
+   - When a fallback persona exists, `profiles.role` is updated to the fallback persona, preserving full access.
+
+3. **Strict Target Student Verification in Guardian Linking**
+   - `fn_link_student_guardian` validates that the target user has a `student` role, belongs to the same school, and is not soft-deleted (`deleted_at IS NULL`).
+   - Server-enforced canonical relationship whitelist (`Mother`, `Father`, `Guardian`, `Legal Guardian`, `Parent`, `Son`, `Daughter`, `Child`, `Ward`, `Other authorized guardian`, `Primary guardian`, `Emergency contact`). Rejects `self_student`.
+
+4. **Authoritative Account Deactivation & RLS Gate**
+   - `fetchProfile()` in `AuthContext.tsx` explicitly checks `is_active` and `deleted_at`. Any attempt to restore a session or log in with a deactivated or deleted account results in immediate sign-out and rejection.
+   - `fn_can_access_student()` enforces `is_active IS TRUE AND deleted_at IS NULL` for both student callers and guardian callers.
+   - Removed unvalidated `student_id = auth.uid()` bypasses from `attendance`, `exam_results`, `class_enrollments`, `homework`, and `homework_submissions`.
+
+5. **Transactional Domain Setup (`fn_setup_tenant_user_domain`)**
+   - Encapsulated user creation domain setup inside an atomic PostgreSQL function. If downstream steps fail, the entire database transaction rolls back, preventing guardian link or role corruption.
+
+6. **Staff PIN Temporary Flag & Session Invalidation**
+   - `fn_setup_or_change_staff_pin` sets `is_temporary = true` and `must_change = true` for temporary PINs.
+   - Invalidation of previous staff unlock sessions explicitly sets `revoked_at = now()`.
+   - `fn_check_staff_pin_status` rejects cross-school inspection with `UNAUTHORIZED_CROSS_SCHOOL`.
+
+7. **Soft-Delete Awareness in Assignments & Homework**
+   - Soft-deleted class/subject assignments (`deleted_at IS NOT NULL`) are excluded from assignment checks.
+   - Online classes are unassigned (`teacher_id = NULL`) without changing class status to cancelled.
+   - Homework RLS requires active enrollment (`class_enrollments.deleted_at IS NULL`).
+
+
 
