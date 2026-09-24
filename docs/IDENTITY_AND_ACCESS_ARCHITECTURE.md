@@ -116,8 +116,8 @@ Teachers who access privileged school data (grades, attendance, class management
 - Managed via `fn_setup_or_change_staff_pin`: Requires existing PIN verification or admin override.
 
 ### 3.2 Staff Unlock Sessions (`public.staff_unlock_sessions`)
-- 12-hour maximum lifetime per session.
-- Bound to user identity, school tenant, and client device fingerprint.
+- 2-hour maximum lifetime per session.
+- Auth-session-bound Staff unlock: bound to user identity, school tenant, and Supabase Auth session ID.
 - Supports immediate manual revocation (`Lock Staff` button) or automated bulk revocation upon teacher departure via `fn_disable_teacher_access_internal`.
 
 ---
