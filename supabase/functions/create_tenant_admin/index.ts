@@ -80,7 +80,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', caller.id)
             .single();
 
-        if (!callerProfile || (callerProfile.role !== 'superadmin' && callerProfile.role !== 'admin')) {
+        if (!callerProfile) {
             return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 403,
@@ -89,6 +89,28 @@ Deno.serve(async (req: Request) => {
 
         if (callerProfile.is_active === false || callerProfile.deleted_at) {
             return new Response(JSON.stringify({ error: 'Forbidden: caller account is inactive or deleted' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 403,
+            });
+        }
+
+        // Load additional capability roles from user_roles (supporting capability-based access)
+        const { data: callerUserRoles } = await supabaseAdmin
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', caller.id);
+
+        const callerRoleSet = new Set<string>();
+        if (callerProfile.role) callerRoleSet.add(callerProfile.role);
+        (callerUserRoles || []).forEach((r: { role: string }) => {
+            if (r.role) callerRoleSet.add(r.role);
+        });
+
+        const isSuperAdmin = callerRoleSet.has('superadmin');
+        const isAdmin = callerRoleSet.has('admin');
+
+        if (!isSuperAdmin && !isAdmin) {
+            return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 403,
             });
@@ -143,7 +165,7 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        if (callerProfile.role === 'admin') {
+        if (!isSuperAdmin) {
             // School admins cannot create superadmins
             if (role === 'superadmin') {
                 return new Response(JSON.stringify({ error: 'Forbidden: Admin cannot create superadmin users' }), {
@@ -167,16 +189,17 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        // Validate schoolId exists in the database before creating the user
+        // Validate schoolId exists and is active in the database before creating the user
         let combinedStudentParentAccount = false;
         if (schoolId) {
             const { data: school } = await supabaseAdmin
                 .from('schools')
-                .select('id, email_domain, combined_parent_student_account')
+                .select('id, status, deleted_at, email_domain, combined_parent_student_account')
                 .eq('id', schoolId)
+                .is('deleted_at', null)
                 .single();
-            if (!school) {
-                return new Response(JSON.stringify({ error: 'Invalid schoolId: school does not exist' }), {
+            if (!school || (school.status && school.status.toLowerCase() !== 'active')) {
+                return new Response(JSON.stringify({ error: 'Invalid schoolId: school does not exist or is not active' }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                     status: 400,
                 });
@@ -293,15 +316,30 @@ Deno.serve(async (req: Request) => {
 
         const rollbackUser = async (userId: string) => {
             try {
-                await supabaseAdmin.from('class_enrollments').delete().eq('student_id', userId);
-                await supabaseAdmin.from('parent_student').delete().eq('student_id', userId);
-                await supabaseAdmin.from('employees').delete().eq('profile_id', userId);
-                await supabaseAdmin.from('memberships').delete().eq('user_id', userId);
-                await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
-                await supabaseAdmin.from('profiles').delete().eq('id', userId);
-                await supabaseAdmin.auth.admin.deleteUser(userId);
+                const resClass = await supabaseAdmin.from('class_enrollments').delete().eq('student_id', userId);
+                if (resClass.error) console.error(`Rollback error class_enrollments for user ${userId}:`, resClass.error);
+
+                const resParent = await supabaseAdmin.from('parent_student').delete().eq('student_id', userId);
+                if (resParent.error) console.error(`Rollback error parent_student for user ${userId}:`, resParent.error);
+
+                const resEmp = await supabaseAdmin.from('employees').delete().eq('profile_id', userId);
+                if (resEmp.error) console.error(`Rollback error employees for user ${userId}:`, resEmp.error);
+
+                const resMem = await supabaseAdmin.from('memberships').delete().eq('user_id', userId);
+                if (resMem.error) console.error(`Rollback error memberships for user ${userId}:`, resMem.error);
+
+                const resRoles = await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
+                if (resRoles.error) console.error(`Rollback error user_roles for user ${userId}:`, resRoles.error);
+
+                const resProf = await supabaseAdmin.from('profiles').delete().eq('id', userId);
+                if (resProf.error) console.error(`Rollback error profiles for user ${userId}:`, resProf.error);
+
+                const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+                if (authError) {
+                    console.error(`Rollback failed to delete auth user ${userId}:`, authError);
+                }
             } catch (rbErr) {
-                console.error(`Rollback error for user ${userId}:`, rbErr);
+                console.error(`Rollback exception for user ${userId}:`, rbErr);
             }
         };
 

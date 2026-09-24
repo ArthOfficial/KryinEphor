@@ -2915,9 +2915,9 @@ Most importantly:
    - Unvalidated `student_id = auth.uid()` bypasses removed from `attendance`, `exam_results`, `class_enrollments`, `homework`, and `homework_submissions`. Student access to records strictly flows through `fn_can_access_student()` which validates active status (`is_active IS TRUE AND deleted_at IS NULL`).
 
 7. **CI Truthfulness & Production Readiness**:
-   - `scripts/security-scan-ci.mjs` and `scripts/test-rls.mjs` provide public fallback configurations and graceful skipping when management tokens are absent.
-   - `.github/workflows/security.yml` ensures CI builds truthfully without crashing on optional secrets.
-   - Clean production build (`npm run build`), Node tests (`node --test tests/*.test.mjs`), Bun test suites (`bun test tests/login-session.test.ts`), and static type checks (`npx tsc --noEmit`) all pass with 0 errors.
+   - `scripts/security-scan-ci.mjs` and `scripts/test-rls.mjs` provide truthful, secure CI behavior: `test-rls.mjs` skips gracefully when explicit test credentials are absent, preventing tests from hitting or writing test rows to live production.
+   - `.github/workflows/security.yml` correctly binds GitHub secrets to job-level `env` before evaluating `if: env.SUPABASE_ACCESS_TOKEN != ''`, fixing the previous GitHub Actions syntax failure.
+   - Core IAM test suites (`tests/*.test.mjs`, `tests/login-session.test.ts`), TypeScript compilation (`tsc --noEmit`), and Vite production builds pass with 0 errors. Note: Lighthouse CI client-side performance and accessibility on public landing pages are tracked separately from backend IAM/security.
 
 ---
 
@@ -2942,3 +2942,27 @@ Most importantly:
 | **16** | Soft-Deleted Student fn_can_access_student | Students with `deleted_at IS NOT NULL` return `false` on access checks | **PASSED** |
 | **17** | Operational RLS Bypass Removal | Student direct `auth.uid()` write/read bypasses removed; access governed by `fn_can_access_student` | **PASSED** |
 | **18** | Full CI Suite & Production Build | TypeScript check, Vite build, Node tests, Bun tests, RLS suite pass cleanly | **PASSED** |
+
+---
+
+# POST-PHASE-21 CRITICAL FOLLOW-UP HARDENING (14/14 Live Assertions Passed)
+
+### Targeted Hardening Invariants & Defenses:
+1. **Deactivated Admin Self-Reactivation Prevention**:
+   - `fn_admin_set_account_active` explicitly verifies caller profile `is_active IS TRUE AND deleted_at IS NULL`.
+   - Caller role derived using `public.has_role()`, ensuring inactive admins are completely blocked from executing activation or deactivation mutations.
+2. **Superadmin Explicit School Context Enforcement**:
+   - `fn_admin_set_account_active` requires explicit `_school_id` when a Superadmin mutates a school-owned target user (`school_id IS NOT NULL`), rejecting calls with missing or mismatched school contexts.
+3. **Capability-Based Edge Function Access**:
+   - `create_tenant_admin` and `update_admin` load caller capabilities from both `profiles.role` and `public.user_roles`, allowing users with secondary `admin`/`superadmin` capabilities to perform administrative tasks while enforcing active/non-deleted caller invariants.
+4. **Staff PIN Protection Against Inactive Callers**:
+   - `fn_setup_or_change_staff_pin`, `fn_check_staff_pin_status`, `fn_verify_staff_pin`, `fn_validate_staff_session`, and `fn_revoke_staff_session` enforce that the caller's account is active (`is_active IS TRUE AND deleted_at IS NULL`). Deactivated staff cannot inspect, configure, verify, or validate Staff PINs.
+5. **Primary Child Default Invariant (`COALESCE` logic)**:
+   - In `fn_setup_tenant_user_domain`: `v_should_be_primary := (v_other_children_count = 0) OR COALESCE(_is_primary_guardian, FALSE);`. Omitting `_is_primary_guardian` when adding subsequent siblings preserves the existing primary child without demotion.
+6. **Inactive/Deleted Tenant Rejection**:
+   - `create_tenant_admin` and `fn_setup_tenant_user_domain` reject archived/soft-deleted schools (`deleted_at IS NOT NULL` or inactive status) with `Target school ... is deleted or not active`.
+7. **Robust Cleanup in `create_tenant_admin`**:
+   - `rollbackUser` explicitly inspects and logs `.error` on each table deletion and auth deletion step.
+8. **CI Hardening & Safe Decoupling**:
+   - `test-rls.mjs` avoids live production fallback.
+   - `.github/workflows/security.yml` evaluates `if: env.SUPABASE_ACCESS_TOKEN != ''` cleanly.

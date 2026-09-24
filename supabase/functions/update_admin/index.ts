@@ -91,6 +91,22 @@ Deno.serve(async (req: Request) => {
             });
         }
 
+        // Load additional capability roles from user_roles
+        const { data: callerUserRoles } = await supabaseAdmin
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', caller.id);
+
+        const callerRoleSet = new Set<string>();
+        if (callerProfile.role) callerRoleSet.add(callerProfile.role);
+        (callerUserRoles || []).forEach((r: { role: string }) => {
+            if (r.role) callerRoleSet.add(r.role);
+        });
+
+        const isSuperAdmin = callerRoleSet.has('superadmin');
+        const isAdmin = callerRoleSet.has('admin');
+        const isPrivileged = isSuperAdmin || isAdmin;
+
         // Parse and validate JSON body
         let payload;
         try {
@@ -113,7 +129,6 @@ Deno.serve(async (req: Request) => {
         }
 
         const isSelfUpdate = caller.id === adminId;
-        const isPrivileged = callerProfile.role === 'superadmin' || callerProfile.role === 'admin';
         if (!isSelfUpdate && !isPrivileged) {
             return new Response(JSON.stringify({ error: 'Forbidden: you can only change your own name' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403,
@@ -241,7 +256,7 @@ Deno.serve(async (req: Request) => {
 
 
         // Validate school context for school-level admins
-        if (callerProfile.role === 'admin') {
+        if (!isSuperAdmin && isAdmin) {
             if (!callerProfile.school_id) {
                 return new Response(JSON.stringify({ error: 'Forbidden: Admin has no school context' }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

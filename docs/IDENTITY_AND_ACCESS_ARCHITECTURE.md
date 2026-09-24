@@ -262,5 +262,34 @@ Following extensive production auditing after Phase 21, additive migration `2026
    - Online classes are unassigned (`teacher_id = NULL`) without changing class status to cancelled.
    - Homework RLS requires active enrollment (`class_enrollments.deleted_at IS NULL`).
 
+---
+
+## 10. Post-Phase-21 Critical Follow-Up Hardening (Migration `20260925010000`)
+
+To permanently close remaining attack surfaces and edge cases discovered during external review:
+
+1. **Deactivated Admin Self-Reactivation Gate**
+   - `fn_admin_set_account_active` strictly validates that the caller profile has `is_active IS TRUE AND deleted_at IS NULL`.
+   - Caller administrative privileges are derived using `public.has_role()`, which checks both `profiles.role` and `user_roles` against active, non-deleted profiles. A deactivated administrator with a valid JWT cannot activate/deactivate accounts or reactivate themselves.
+
+2. **Superadmin Explicit Tenant Scoping**
+   - Platform superadmins managing school-owned profiles (`school_id IS NOT NULL`) must supply explicit `_school_id` matching the target profile's tenant, preventing accidental or unauthorized cross-tenant mutations.
+
+3. **Capability-Based Edge Function Authorization**
+   - `create_tenant_admin` and `update_admin` inspect both `profiles.role` and `user_roles` to recognize administrators with non-primary administrative roles (e.g. Teacher + Admin).
+
+4. **Staff PIN Protection Against Inactive Accounts**
+   - `fn_setup_or_change_staff_pin`, `fn_check_staff_pin_status`, `fn_verify_staff_pin`, `fn_validate_staff_session`, and `fn_revoke_staff_session` verify that the calling user profile has `is_active IS TRUE AND deleted_at IS NULL`, preventing deactivated staff with stale JWTs from inspecting or modifying PIN state.
+
+5. **Primary Child Default Invariant (`COALESCE` logic)**
+   - In `fn_setup_tenant_user_domain`, the primary status calculation uses `(v_other_children_count = 0) OR COALESCE(_is_primary_guardian, FALSE)`. This ensures that omitting the primary flag for subsequent children never demotes existing primary children.
+
+6. **Active Tenant Gate**
+   - `fn_setup_tenant_user_domain` and `create_tenant_admin` verify that the target school is not soft-deleted (`deleted_at IS NULL`) and is in active status (`status = 'active'`). Soft-deleted or archived schools cannot accept new user setups.
+
+7. **CI Integrity & Truthfulness**
+   - `.github/workflows/security.yml` binds secrets to job `env` before evaluating `if: env.SUPABASE_ACCESS_TOKEN != ''`.
+   - `scripts/test-rls.mjs` no longer hardcodes live production credentials, preventing accidental production probes or write attempts during CI.
+
 
 

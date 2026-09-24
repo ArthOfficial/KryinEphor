@@ -9,11 +9,11 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
-const url = process.env.VITE_SUPABASE_URL || "https://qgefjcuulsofevmxfqxe.supabase.co";
-const anon = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnZWZqY3V1bHNvZmV2bXhmcXhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4Mzg4MTEsImV4cCI6MjA4NzQxNDgxMX0.npaMYsszoEeQHiDBxsZM784qyxhFuHXVNm-xIBkPJkA";
+const url = process.env.TEST_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const anon = process.env.TEST_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 if (!url || !anon) {
-  console.error("Missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY");
-  process.exit(2);
+  console.log("No TEST_SUPABASE_URL / TEST_SUPABASE_ANON_KEY configured. Skipping RLS smoke test (production fallback prohibited).");
+  process.exit(0);
 }
 
 const supabase = createClient(url, anon, { auth: { persistSession: false } });

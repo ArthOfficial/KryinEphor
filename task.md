@@ -181,3 +181,29 @@ Additive migration applied to live Supabase DB: `supabase/migrations/20260925000
   - Linter gate made conditional on `SUPABASE_ACCESS_TOKEN`.
 - [x] **Targeted Test Suite**: 18/18 Scenarios Passed (27/27 Assertions, 0 Failures).
 
+## Post-Phase 21 Follow-Up Hardening (Commit Follow-Up)
+
+- [x] **1. DB Boundary Account Kill-Switch Enforcement**
+  - In `fn_admin_set_account_active`, verify caller `is_active IS TRUE AND deleted_at IS NULL` directly on caller profile.
+  - Reject deactivated Admin attempting self-reactivation or target mutation via direct RPC (`Access denied: caller account is inactive or deleted`).
+  - Derive admin authorization using `public.has_role()` instead of stale unvalidated `get_auth_role()`.
+- [x] **2. Superadmin Explicit School Context Enforcement**
+  - When Superadmin mutates a school-owned target user, require explicit `_school_id` matching target user's `school_id`.
+  - Block mutations where `_school_id` is omitted or mismatched with `Superadmin must provide matching _school_id for school-owned user`.
+- [x] **3. Admin / Superadmin Capabilities in Edge Functions**
+  - `create_tenant_admin` and `update_admin` load all caller `user_roles` alongside `profiles.role`.
+  - Secondary capabilities (`user_roles.role IN ('admin', 'superadmin')`) recognized authoritatively for users with non-admin primary roles (e.g. Teacher + Admin).
+- [x] **4. Staff PIN RPCs Obey Account Deactivation**
+  - `fn_setup_or_change_staff_pin`, `fn_check_staff_pin_status`, `fn_verify_staff_pin`, `fn_validate_staff_session`, and `fn_revoke_staff_session` enforce caller `is_active IS TRUE AND deleted_at IS NULL`.
+  - Deactivated staff cannot inspect, set, or verify PINs even with stale JWTs and active employee rows.
+- [x] **5. Primary-Child Default Boolean Logic Fixed**
+  - Corrected `v_should_be_primary := (v_other_children_count = 0) OR COALESCE(_is_primary_guardian, FALSE)`.
+  - Omitting `_is_primary_guardian` (`NULL`) when parent already has a primary child preserves the existing primary child and does not demote them.
+- [x] **6. Reject Soft-Deleted / Archived Schools**
+  - `create_tenant_admin` Edge Function and `fn_setup_tenant_user_domain` RPC check `schools.deleted_at IS NULL AND schools.status NOT IN ('archived', 'suspended')`.
+- [x] **7. Auth Cleanup Error Checking in Edge Functions**
+  - `rollbackUser` in `create_tenant_admin` explicitly inspects `.error` on each Supabase deletion step and logs errors.
+- [x] **8. Security Workflow & RLS CI Isolation**
+  - Fixed GitHub Actions secret reference syntax in `.github/workflows/security.yml` by mapping secrets to job `env`.
+  - Removed live production fallback URLs and keys from `scripts/test-rls.mjs`; exits cleanly with skip message if test credentials not configured.
+- [x] **Post-Phase 21 Verification Matrix**: 14/14 Live PostgreSQL Assertions Passed (0 Failures).
