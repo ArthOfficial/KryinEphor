@@ -2194,7 +2194,7 @@ Do not log plaintext PINs or passwords.
   - `fn_update_guardian_relationship`: Audits `guardian relationship edited` with previous and new states.
   - `fn_unlink_student_guardian`: Audits `child unlinked` with target student identity, parent identity, remaining children count, and teacher capability state.
   - `fn_set_student_status`: Audits `student archived` ('archived' / 'inactive') or `student withdrawn` ('withdrawn') with reason, notes, and academic preservation details.
-  - `fn_remove_teacher_access`: Audits `teacher removed` and `teacher deactivated` with employee identity and remaining personas.
+  - Neutralized `fn_remove_teacher_access`: Dropped in post-Phase-18 hardening; teacher capability lifecycle is exclusively executed via server-authoritative `update_admin` Edge Function invoking `fn_disable_teacher_access_internal`, auditing `teacher removed` and `teacher deactivated` with employee identity and remaining personas.
 - **Student Guarded Deletion Auditing**:
   - `delete_user` Edge Function: Audits `student deletion attempted` with `blocked: true` and record counts when deletion is refused; audits `student deleted if exceptionally allowed` when deletion succeeds.
   - `fn_audit_student_deletion_attempt`: Helper RPC for logging deletion attempts directly from client modals or server routines.
@@ -2811,3 +2811,60 @@ Do not silently change unrelated Kryin Ephor features.
 Most importantly:
 
 **DO NOT REMOVE OR SPLIT THE CURRENT STUDENT + PARENT COMBINED ACCOUNT FEATURE. IT IS AN INTENTIONAL KRYIN EPHOR PRODUCT FEATURE. EXTEND IT SAFELY.**
+
+---
+
+# POST-PHASE-20 HARDENING & TEST MATRIX VERIFICATION [COMPLETED]
+
+### Items 31–40 Implementations & Invariants:
+
+1. **Item 31: Account Deactivation Must Be Distinct**
+   - Distinct lifecycles enforced:
+     - Student departure: `student_status` changes (`withdrawn`, `graduated`, `transferred`, `archived`).
+     - Teacher departure: `employees.status = 'inactive'`, teacher role deleted from `user_roles`, `teacher_assignment_history` snapshotted.
+     - Guardian unlink: `parent_student.status = 'unlinked'`, primary child reassigned if necessary.
+     - Account deactivation: `profiles.is_active = false` via `fn_admin_set_account_active`.
+   - Domain events never silently flip `profiles.is_active`.
+   - Account deactivation automatically revokes all active staff unlock sessions (`revoked_at = NOW()`).
+
+2. **Item 32: Preserve Family & Academic History**
+   - Complete academic and operational continuity preserved across unlinks and departures: attendance, fees, marks, exam results, transaction logs, and teacher assignment histories remain intact.
+   - Deletion hierarchy strictly maintained: `UNLINK -> DEACTIVATE DOMAIN MEMBERSHIP -> ARCHIVE / WITHDRAW -> HARD DELETE (explicitly requested admin only)`.
+
+3. **Item 33: Database Function Security**
+   - Fixed `search_path = public, extensions` on all `SECURITY DEFINER` functions.
+   - Explicit `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon;`.
+   - Minimum required privilege granted to `authenticated` or internal server callers only.
+   - Neutralized unsafe `fn_remove_teacher_access(UUID, UUID, UUID)` completely by dropping it from the database catalog.
+
+4. **Item 34: Untrusted Caller IDs**
+   - Caller identity derived authority-side from `auth.uid()` / verified JWT claims.
+   - Cross-school actor or candidate IDs rejected with `Access denied`.
+   - Duplicate decision audits (`fn_audit_duplicate_decision`) derive canonical names, emails, and roles directly from the database rather than trusting client-supplied strings.
+
+5. **Item 35: Live Test Matrix Execution (32/32 Passed)**
+   - **Scenario A (Student Lifecycle)**: Withdrawing or transferring a student updates `student_status` without touching `profiles.is_active` or removing family/teacher roles.
+   - **Scenario B (Child Linking)**: Linking a child to a disabled guardian does not reactivate the guardian account (`is_active` remains false); primary child invariant strictly enforced.
+   - **Scenario C (Primary Child)**: Sibling promotion and demotion handled deterministically without transient constraint collisions; never 0 primaries when active children exist.
+   - **Scenario D (Tenant Isolation)**: School A administrator blocked from linking School B child, changing School B student status, or auditing School B candidates.
+   - **Scenario E (Exposed Teacher RPC)**: `fn_remove_teacher_access` verified completely absent from `pg_proc`.
+   - **Scenario F (Teacher Removal)**: Teacher with active class assignments blocked from removal unless clearance is explicitly authorized; assignment history archived.
+   - **Scenario G (Stale JWT Claims)**: Former teacher with stale JWT claims denied write operations (attendance) due to inactive employee / revoked role check.
+   - **Scenario H & I (Staff PIN & Auth-Session Binding)**: Staff unlock requires valid PIN, issues a 2-hour scoped token, and rejects cross-session use (`SESSION_MISMATCH`).
+   - **Scenario J (Teacher Assignment Isolation)**: Teacher A assigned to Class 5A can access 5A data, while Class 6B queries return false / 0 rows.
+   - **Scenario K (LocalStorage Tampering)**: Setting client `localStorage.setItem('role', 'teacher')` fails server-side authorization.
+   - **Scenario L–O (Persona Switcher & Domain State)**: Active vs transferred children handled gracefully; transferred children retained in family history but excluded from active student persona; multi-role work personas (Accountant, Receptionist) supported cleanly.
+   - **Scenario P (Duplicate Audit Tampering)**: Fake candidate names sent by the client are logged under `client_context`, while `canonical_candidate` strictly records the verified database profile.
+
+6. **Item 36: Build & Static Checks**
+   - Node test suite passed: `tests/*.test.mjs` (4/4 passed).
+   - Bun test suite passed: `tests/login-session.test.ts` (6/6 passed across files).
+   - TypeScript & Vite production build passed: `tsc -b && vite build` (0 compilation errors).
+
+7. **Item 37: Type Synchronization**
+   - Verified no deprecated or removed RPC signatures exist in runtime code or Supabase TypeScript definitions.
+
+8. **Item 38: Documentation Accuracy**
+   - Corrected session token lifetime to 2 hours.
+   - Accurately described Auth-session binding rather than device binding.
+   - Formulated the auth model as an intentional family-login container rather than claiming every real-world human has a separate `auth.users` row.

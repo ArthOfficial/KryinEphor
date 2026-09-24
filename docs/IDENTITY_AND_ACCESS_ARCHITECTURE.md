@@ -66,8 +66,8 @@ flowchart TD
 ## 2. Core Identity Elements
 
 ### 2.1 Auth Account (`auth.users`)
-- Each real-world person has **exactly one** `auth.users` row.
-- If a parent becomes a teacher, or a teacher's child enrolls, no second auth account is created.
+- Kryin Ephor intentionally supports both individual user logins and a **family-login container model**. A single `auth.users` account can anchor family access to multiple canonical students while preserving separate domain identities and individual academic records.
+- If a parent becomes a teacher, or a teacher's child enrolls, no second auth account is created; domain capabilities are securely mapped to the existing account container.
 - Password resets, MFA, and session tokens are anchored to this single login.
 
 ### 2.2 Profile (`public.profiles`)
@@ -104,7 +104,7 @@ Teachers who access privileged school data (grades, attendance, class management
        │
        ├─► [Incorrect PIN < 5 Attempts] ──> Increments failed_attempts, Logs 'staff unlock failed'
        ├─► [5 Failed Attempts] ───────────> Locks PIN for 15 mins (ACCOUNT_LOCKED), Logs 'staff unlock locked'
-       └─► [Valid PIN] ───────────────────> Issues 12-Hour Session Token, Logs 'staff unlock succeeded'
+       └─► [Valid PIN] ───────────────────> Issues 2-Hour Session Token, Logs 'staff unlock succeeded'
                                                    │
                                                    ▼
                                      [Unlocked Teacher Dashboard ✓]
@@ -113,12 +113,12 @@ Teachers who access privileged school data (grades, attendance, class management
 ### 3.1 PIN Storage & Protection (`public.staff_pins`)
 - PINs are hashed using cryptographic `crypt(pin, gen_salt('bf', 10))`.
 - Tracked counters: `failed_attempts` and `locked_until`.
-- Managed via `fn_setup_or_change_staff_pin`: Requires existing PIN verification or admin override.
+- Managed via `fn_setup_or_change_staff_pin`: Requires active teacher capability and existing PIN verification or admin override.
 
 ### 3.2 Staff Unlock Sessions (`public.staff_unlock_sessions`)
-- 2-hour maximum lifetime per session.
-- Auth-session-bound Staff unlock: bound to user identity, school tenant, and Supabase Auth session ID.
-- Supports immediate manual revocation (`Lock Staff` button) or automated bulk revocation upon teacher departure via `fn_disable_teacher_access_internal`.
+- 2-hour maximum lifetime per session token.
+- Auth-session-bound Staff unlock: bound to user identity, school tenant, and the active Supabase Auth session ID (`auth_session_id`). Rejects cross-session use (SESSION_MISMATCH).
+- Supports immediate manual revocation (`Lock Staff` button) or automated bulk revocation upon teacher departure or account deactivation via `fn_admin_set_account_active`.
 
 ---
 
@@ -160,5 +160,29 @@ Every privileged lifecycle event records canonical audit telemetry:
 - `actor_id` & `actor_role`: Who initiated the operation.
 - `school_id`: Target tenant context.
 - `target_user_id`: Target identity affected.
-- `action`: Standardized action name (`child linked`, `child unlinked`, `teacher_access_disabled`, `student withdrawn`, `staff unlock failed`, `staff unlock locked`, `staff unlock succeeded`).
-- `detail`: JSONB payload capturing complete before/after state transitions, timestamps, device context, and cleared entity counts.
+- `action`: Standardized action name (`child linked`, `child unlinked`, `teacher_access_disabled`, `student withdrawn`, `staff unlock failed`, `staff unlock locked`, `staff unlock succeeded`, `duplicate_detection_resolution`).
+- `detail`: JSONB payload capturing complete before/after state transitions, timestamps, device context, and canonical server-derived entity information.
+
+---
+
+## 7. Hardening Verification & Test Matrix
+
+The identity, access control, and staff security layer has been verified against the live PostgreSQL database across all required test matrix scenarios (A through P):
+
+| Scenario | Scope & Condition | Verified Invariant | Status |
+| :--- | :--- | :--- | :--- |
+| **A. Student Lifecycle** | Student + Parent withdrawn / transferred | `student_status` changes; account `is_active = true` preserved; parent/teacher roles intact | **VERIFIED** |
+| **B. Child Linking** | Disabled guardian linked to new student | Guardian `is_active` remains `false`; exactly 1 primary child established | **VERIFIED** |
+| **C. Primary Child** | Promotion of sibling & removal attempts | Primary invariant strictly maintained (never 0 primaries for active children) | **VERIFIED** |
+| **D. Tenant Isolation** | Cross-school link, status change, audit | Blocked by server-side tenant checks (`Access denied`) | **VERIFIED** |
+| **E. Legacy RPC Bypass** | Ordinary user calls `fn_remove_teacher_access` | Function completely dropped from database catalog; no RPC route exists | **VERIFIED** |
+| **F. Teacher Removal** | Teacher with active class/subject assignments | Blocked without explicit clearance; snapshots to `teacher_assignment_history` | **VERIFIED** |
+| **G. Stale JWT** | Token retains teacher role after deactivation | Inactive employee check prevents attendance/exam writes regardless of JWT claim | **VERIFIED** |
+| **H. Staff PIN Gate** | Direct DB access without staff unlock | Unlocked status returns `false`; valid PIN generates scoped session token | **VERIFIED** |
+| **I. Auth-Session Binding** | Token unlocked in Auth Session A used in Session B | Denied with `SESSION_MISMATCH`; cannot cross auth sessions | **VERIFIED** |
+| **J. Teacher Assignment** | Teacher A queries unassigned Class 6B | Returns 0 rows / denied; assigned Class 5A allowed | **VERIFIED** |
+| **K. LocalStorage Tamper** | Non-teacher injects `role: 'teacher'` | Server-side role checks reject operation | **VERIFIED** |
+| **L–N. Family Personas** | Active vs transferred children | Transferred children appear in family history; excluded from active student persona switcher | **VERIFIED** |
+| **O. Multi-Work Persona** | Parent + Accountant / Teacher + Receptionist | All valid authorized work personas rendered and selectable | **VERIFIED** |
+| **P. Audit Tampering** | Fake candidate name sent by client | Audit records canonical DB name under `canonical_candidate`; client text isolated | **VERIFIED** |
+
