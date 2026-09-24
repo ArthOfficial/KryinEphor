@@ -620,7 +620,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const closeStaffPinModal = useCallback(() => setIsStaffPinModalOpen(false), []);
 
     const switchDashboardRole = useCallback((nextRole: UserRole) => {
-        if (!roles.includes(nextRole)) return;
+        // Allow switching to 'student' if user either holds the student role or has authorized active linked children
+        const hasAuthorizedStudentView = nextRole === 'student' && (
+            roles.includes('student') || 
+            linkedStudents.some(s => !s.studentStatus || s.studentStatus === 'active')
+        );
+
+        if (!roles.includes(nextRole) && !hasAuthorizedStudentView) return;
 
         // Phase 5: Gating teacher role switch behind verified staff PIN unlock
         if (nextRole === 'teacher' && !isStaffUnlocked) {
@@ -634,7 +640,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 localStorage.setItem(`active_role_${user.id}`, nextRole);
             }
         } catch { /* ignore */ }
-    }, [roles, user?.id, isStaffUnlocked]);
+    }, [roles, user?.id, isStaffUnlocked, linkedStudents]);
 
     const hideToast = () => setToast({ ...toast, show: false });
 

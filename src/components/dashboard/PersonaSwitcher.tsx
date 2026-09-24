@@ -94,7 +94,7 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
     // Label for current workspace
     const getCurrentWorkspaceLabel = () => {
         if (role === 'student') {
-            const activeChild = linkedStudents.find(s => s.studentId === activeStudentId) || linkedStudents[0];
+            const activeChild = activeLinkedStudents.find(s => s.studentId === activeStudentId) || activeLinkedStudents[0];
             if (activeChild) {
                 const classInfo = formatChildClass(activeChild.className, activeChild.sectionName);
                 return classInfo ? `${activeChild.fullName} (${classInfo})` : activeChild.fullName;
@@ -105,13 +105,41 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
         if (role === 'teacher') return 'Teacher Dashboard';
         if (role === 'admin') return 'School Admin';
         if (role === 'superadmin') return 'Super Admin';
+        if (role === 'accountant') return 'Accountant';
+        if (role === 'receptionist') return 'Receptionist';
         return 'Workspace';
     };
 
-    // Quick toggle for 2-role single-child Student <-> Parent accounts
-    const isPureStudentParent = roles.includes('student') && roles.includes('parent') && roles.length === 2 && linkedStudents.length <= 1;
+    // Calculate actual usable available personas (Items 25, 26, 28)
+    const availablePersonasCount = (() => {
+        let count = 0;
+        if (roles.includes('parent')) count++;
+        if (roles.includes('teacher')) count++;
+        if (roles.includes('admin') || roles.includes('superadmin')) count++;
+        if (roles.includes('accountant')) count++;
+        if (roles.includes('receptionist')) count++;
+        // Add active linked student personas
+        count += activeLinkedStudents.length;
+        // Legacy/self student capability if not already represented in activeLinkedStudents
+        if (roles.includes('student') && activeLinkedStudents.length === 0 && (!user?.studentStatus || user.studentStatus === 'active')) {
+            count++;
+        }
+        return count;
+    })();
 
-    if (roles.length <= 1 && linkedStudents.length <= 1) {
+    // Quick toggle for 2-persona single-child Parent <-> Student accounts
+    const isPureStudentParent = (
+        roles.includes('parent') &&
+        activeLinkedStudents.length === 1 &&
+        roles.length === 1
+    ) || (
+        roles.includes('student') &&
+        roles.includes('parent') &&
+        roles.length === 2 &&
+        activeLinkedStudents.length <= 1
+    );
+
+    if (availablePersonasCount <= 1) {
         return null;
     }
 
@@ -314,6 +342,48 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                     )}
                                 </button>
                             )}
+
+                            {/* Accountant Workspace */}
+                            {roles.includes('accountant') && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSelectRole('accountant')}
+                                    className={`w-full flex items-center ${collapsed ? 'justify-center p-2' : 'justify-between px-2.5 py-1.5'} rounded-xl text-xs font-medium transition-all ${
+                                        role === 'accountant'
+                                            ? 'bg-rose-700 text-white font-bold shadow-xs'
+                                            : 'bg-white/80 hover:bg-white text-stone-700 border border-stone-200/70 hover:border-rose-300'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1.5 truncate">
+                                        <span className="text-xs shrink-0">💼</span>
+                                        {!collapsed && <span className="truncate">Accountant</span>}
+                                    </div>
+                                    {!collapsed && role === 'accountant' && (
+                                        <Check className="w-3 h-3 text-white shrink-0" />
+                                    )}
+                                </button>
+                            )}
+
+                            {/* Receptionist Workspace */}
+                            {roles.includes('receptionist') && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSelectRole('receptionist')}
+                                    className={`w-full flex items-center ${collapsed ? 'justify-center p-2' : 'justify-between px-2.5 py-1.5'} rounded-xl text-xs font-medium transition-all ${
+                                        role === 'receptionist'
+                                            ? 'bg-teal-700 text-white font-bold shadow-xs'
+                                            : 'bg-white/80 hover:bg-white text-stone-700 border border-stone-200/70 hover:border-teal-300'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1.5 truncate">
+                                        <span className="text-xs shrink-0">📋</span>
+                                        {!collapsed && <span className="truncate">Receptionist</span>}
+                                    </div>
+                                    {!collapsed && role === 'receptionist' && (
+                                        <Check className="w-3 h-3 text-white shrink-0" />
+                                    )}
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -508,6 +578,48 @@ export const PersonaSwitcher: React.FC<PersonaSwitcherProps> = ({
                                         </div>
                                         {(role === 'admin' || role === 'superadmin') && (
                                             <Check className="w-3.5 h-3.5 text-indigo-700 shrink-0 stroke-[2.5]" />
+                                        )}
+                                    </button>
+                                )}
+
+                                {/* Accountant */}
+                                {roles.includes('accountant') && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSelectRole('accountant')}
+                                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                                            role === 'accountant'
+                                                ? 'bg-rose-50/90 text-rose-950 shadow-2xs border border-rose-200/60 font-bold'
+                                                : 'hover:bg-stone-50 text-stone-700 hover:text-stone-900'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2.5 truncate">
+                                            <span className="text-sm shrink-0">💼</span>
+                                            <span className="truncate">Accountant</span>
+                                        </div>
+                                        {role === 'accountant' && (
+                                            <Check className="w-3.5 h-3.5 text-rose-700 shrink-0 stroke-[2.5]" />
+                                        )}
+                                    </button>
+                                )}
+
+                                {/* Receptionist */}
+                                {roles.includes('receptionist') && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSelectRole('receptionist')}
+                                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                                            role === 'receptionist'
+                                                ? 'bg-teal-50/90 text-teal-950 shadow-2xs border border-teal-200/60 font-bold'
+                                                : 'hover:bg-stone-50 text-stone-700 hover:text-stone-900'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2.5 truncate">
+                                            <span className="text-sm shrink-0">📋</span>
+                                            <span className="truncate">Receptionist</span>
+                                        </div>
+                                        {role === 'receptionist' && (
+                                            <Check className="w-3.5 h-3.5 text-teal-700 shrink-0 stroke-[2.5]" />
                                         )}
                                     </button>
                                 )}

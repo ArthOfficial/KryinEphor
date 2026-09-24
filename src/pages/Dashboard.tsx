@@ -304,7 +304,7 @@ const Dashboard: React.FC = () => {
                             </p>
                         </div>
                         <div className="relative z-10 flex w-full items-end justify-between gap-4 md:w-auto md:flex-col md:items-end md:justify-start">
-                            {roles.includes('student') && roles.includes('parent') && (
+                            {((roles.includes('student') && roles.includes('parent')) || (roles.includes('parent') && linkedStudents.some(s => !s.studentStatus || s.studentStatus === 'active'))) && (
                                 <button
                                     type="button"
                                     onClick={() => switchDashboardRole(role === 'student' ? 'parent' : 'student')}

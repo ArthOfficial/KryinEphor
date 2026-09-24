@@ -2058,8 +2058,12 @@ const UserDrawer: React.FC<{
             toast.success('Teacher access disabled. Operational assignments handled, unlock sessions revoked, and family access preserved.');
             setDisableTeacherModalOpen(false);
             setAdditionalRoles(prev => prev.filter(r => r !== 'teacher'));
-            if (editRole === 'teacher') {
-                setEditRole('parent');
+            const resultingRole = (fnData as { new_primary_role?: string })?.new_primary_role;
+            if (resultingRole) {
+                setEditRole(resultingRole);
+            } else if (editRole === 'teacher') {
+                const remaining = additionalRoles.find(r => r !== 'teacher') || 'parent';
+                setEditRole(remaining);
             }
             if (targetSchool) {
                 queryClient.invalidateQueries({ queryKey: qk.teachers.bySchool(targetSchool) });
@@ -2490,15 +2494,29 @@ const UserDrawer: React.FC<{
                                         <span className="text-xs font-bold uppercase tracking-wider text-foreground">Family Access</span>
                                     </div>
                                     <div className="flex items-center gap-1.5">
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                            (user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0)
-                                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                                : 'bg-stone-100 text-stone-600'
-                                        }`}>
-                                            {(user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0)
-                                                ? 'Parent: Active'
-                                                : 'Parent: Inactive'}
-                                        </span>
+                                        {(() => {
+                                            const hasFamilyCapability = user.role === 'parent' || additionalRoles.includes('parent') || linkedStudents.length > 0;
+                                            const isAccountActive = isActive && (user.is_active ?? true);
+                                            if (!hasFamilyCapability) {
+                                                return (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
+                                                        No Family Links
+                                                    </span>
+                                                );
+                                            }
+                                            if (!isAccountActive) {
+                                                return (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                                        Family Linked · Account Disabled
+                                                    </span>
+                                                );
+                                            }
+                                            return (
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                                                    Family Linked · Active
+                                                </span>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
 
@@ -5008,11 +5026,9 @@ const UserManagement: React.FC = () => {
         if (!bundle) return [];
         const schoolMap = new Map(bundle.schools.map(s => [s.id, s.name]));
         return bundle.profiles.map((u): User => {
-            const studentStatus = u.role === 'student' ? (u.student_status || (u.is_active ? 'active' : 'inactive')) : null;
-            let displayStatus = u.is_active ? 'Active' : 'Disabled';
-            if (u.role === 'student' && studentStatus && studentStatus !== 'active') {
-                displayStatus = studentStatus.charAt(0).toUpperCase() + studentStatus.slice(1);
-            }
+            const hasStudentCapability = u.role === 'student' || (u.roles && u.roles.includes('student'));
+            const studentStatus = hasStudentCapability ? (u.student_status || (u.is_active ? 'active' : 'inactive')) : null;
+            const displayStatus = u.is_active ? 'Active' : 'Disabled';
             return {
                 id: u.id,
                 full_name: u.full_name,

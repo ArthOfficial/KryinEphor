@@ -23,7 +23,7 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
-    const { role, roles, user, switchDashboardRole, lockStaffMode, linkedStudents } = useAuth();
+    const { role, roles, user, switchDashboardRole, lockStaffMode, linkedStudents, setActiveStudentId } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [searchQuery, setSearchQuery] = useState('');
@@ -158,16 +158,41 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
 
                 {/* Persona Switcher for multi-role/multi-child, or quick switch button for pure Student/Parent */}
                 {(() => {
-                    const isPureStudentParent = roles.includes('student') && roles.includes('parent') && roles.length === 2 && (!linkedStudents || linkedStudents.length <= 1);
-                    if (!isPureStudentParent && (roles.length > 1 || (linkedStudents && linkedStudents.length > 1))) {
-                        return <PersonaSwitcher variant="header" />;
-                    }
+                    const activeLinkedStudents = linkedStudents?.filter(s => !s.studentStatus || s.studentStatus === 'active') || [];
+                    const availablePersonasCount = (() => {
+                        let count = 0;
+                        if (roles.includes('parent')) count++;
+                        if (roles.includes('teacher')) count++;
+                        if (roles.includes('admin') || roles.includes('superadmin')) count++;
+                        if (roles.includes('accountant')) count++;
+                        if (roles.includes('receptionist')) count++;
+                        count += activeLinkedStudents.length;
+                        if (roles.includes('student') && activeLinkedStudents.length === 0 && (!user?.studentStatus || user.studentStatus === 'active')) {
+                            count++;
+                        }
+                        return count;
+                    })();
+
+                    const isPureStudentParent = (
+                        roles.includes('parent') &&
+                        activeLinkedStudents.length === 1 &&
+                        roles.length === 1
+                    ) || (
+                        roles.includes('student') &&
+                        roles.includes('parent') &&
+                        roles.length === 2 &&
+                        activeLinkedStudents.length <= 1
+                    );
+
                     if (isPureStudentParent) {
                         return (
                             <button
                                 type="button"
                                 onClick={() => {
                                     const next = role === 'student' ? 'parent' : 'student';
+                                    if (next === 'student' && activeLinkedStudents[0]) {
+                                        setActiveStudentId(activeLinkedStudents[0].studentId);
+                                    }
                                     switchDashboardRole(next);
                                     if (['/classes', '/users', '/attendance', '/marks', '/manage-tests', '/school-finance', '/finance', '/settings', '/global-setup', '/alerts', '/database'].includes(location.pathname)) {
                                         navigate('/dashboard');
@@ -181,6 +206,9 @@ const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {
                                 <span className="sm:hidden">{role === 'student' ? 'Parent' : 'Student'}</span>
                             </button>
                         );
+                    }
+                    if (availablePersonasCount > 1) {
+                        return <PersonaSwitcher variant="header" />;
                     }
                     return null;
                 })()}

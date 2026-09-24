@@ -553,6 +553,7 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({
             success: true,
             user: { id: adminId, email: email || targetProfile.email },
+            new_primary_role: disableResult?.new_primary_role,
             ...(metadataSyncWarning ? { metadata_sync_warning: metadataSyncWarning } : {}),
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
