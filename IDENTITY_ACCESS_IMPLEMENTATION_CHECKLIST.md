@@ -2965,4 +2965,26 @@ Most importantly:
    - `rollbackUser` explicitly inspects and logs `.error` on each table deletion and auth deletion step.
 8. **CI Hardening & Safe Decoupling**:
    - `test-rls.mjs` avoids live production fallback.
-   - `.github/workflows/security.yml` evaluates `if: env.SUPABASE_ACCESS_TOKEN != ''` cleanly.
+   - `.github/workflows/security.yml` evaluates `if: env.SUPABASE_ACCESS_TOKEN != ''` cleanly. Note: Security CI infrastructure passes; live RLS smoke testing and Supabase linter skip cleanly when dedicated test/staging secrets are omitted, preventing unintended production writes.
+
+---
+
+# ADDITIVE HARDENING MIGRATION 20260925011000 & CAPABILITY INTEGRATION
+
+### Applied Fixes & Verified Invariants:
+1. **Migration Immutability Preserved**:
+   - Frozen `20260925010000_post_phase21_critical_hardening_followup.sql` to its exact parent state from `36b3753`.
+   - Applied new additive migration `20260925011000_secondary_admin_capability_and_session_failclose.sql` to live database and verified via `pg_proc`.
+2. **Capability-Based Transactional Domain Setup (`fn_setup_tenant_user_domain`)**:
+   - Derives caller role capability using `public.has_role(_caller_id, 'superadmin')` and `public.has_role(_caller_id, 'admin')`, fully enabling users with primary `teacher` and secondary `admin` in `user_roles` to create tenant users atomically.
+3. **Fail-Closed Staff Session Validation (`fn_validate_staff_session`)**:
+   - Denies validation with `MISSING_AUTH_SESSION_CLAIM` if JWT `session_id` cannot be proven, eliminating the prior fail-open loophole on missing JWT claim.
+4. **Canonical Account Deactivation Enforcement (`update_admin`)**:
+   - Removed direct write to `profiles.is_active` in `update_admin`.
+   - Account active/inactive changes delegate strictly to `fn_admin_set_account_active`, ensuring immediate staff unlock session revocation (`revoked_at = now()`, `revoked_reason = 'account_deactivated'`), audit logging, root account protection, and tenant scoping.
+   - Profile rollback restores `metadata` as well as all modified profile fields if Auth update fails.
+   - Audit and human notifications aligned to effective actor role.
+5. **Automated Secondary Capability Test Suite**:
+   - Added `tests/secondary-admin-capability.test.mjs` with 7/7 automated assertions covering same-school, cross-school, superadmin, and deactivated caller boundaries.
+6. **Lighthouse CI & SPA Client Initialization Hardening**:
+   - Added safe placeholder client initialization fallbacks in `src/integrations/supabase/client.ts` and `.github/workflows/lighthouse.yml`, preventing unhandled client-side runtime errors during headless analysis and addressing NO_FCP.

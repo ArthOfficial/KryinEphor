@@ -291,5 +291,26 @@ To permanently close remaining attack surfaces and edge cases discovered during 
    - `.github/workflows/security.yml` binds secrets to job `env` before evaluating `if: env.SUPABASE_ACCESS_TOKEN != ''`.
    - `scripts/test-rls.mjs` no longer hardcodes live production credentials, preventing accidental production probes or write attempts during CI.
 
+---
+
+## 11. Additive Migration `20260925011000`: Secondary Capability Authorization & Fail-Closed Session Enforcement
+
+To adhere to the immutable migration invariant (once applied, freeze migration and add subsequent migrations additively), migration `20260925011000` was deployed:
+
+1. **Transactional Domain Setup via Capability Authorization (`fn_setup_tenant_user_domain`)**
+   - Replaced caller role check with `public.has_role(_caller_id, 'superadmin')` and `public.has_role(_caller_id, 'admin')`.
+   - Guarantees users holding secondary `admin`/`superadmin` capabilities in `public.user_roles` (such as Teacher + Admin) can authoritatively configure tenant user domains.
+   - Enforces active caller account verification (`is_active IS TRUE AND deleted_at IS NULL`).
+
+2. **Staff Session Validation Fail-Closed Enforcement (`fn_validate_staff_session`)**
+   - Changed authentication session matching to fail closed: if `request.jwt.claims ->> 'session_id'` is missing or unextractable, the RPC immediately returns `{ "is_valid": false, "reason": "MISSING_AUTH_SESSION_CLAIM" }`.
+   - Validates that the unlock session's `auth_session_id` strictly matches the active JWT session.
+
+3. **Canonical Account Deactivation Enforcement (`update_admin`)**
+   - Direct mutation of `profiles.is_active` removed from generic `update_admin`.
+   - All account active/inactive lifecycle transitions route authoritatively through `fn_admin_set_account_active`, ensuring immediate staff session revocation, audit logging, root account protection, and tenant validation.
+   - Comprehensive rollback covers `metadata` as well as all profile attributes if Auth user updates fail.
+   - Audit and notification attribution aligned to effective actor role.
+
 
 

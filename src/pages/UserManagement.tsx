@@ -2132,6 +2132,17 @@ const UserDrawer: React.FC<{
                 ? `${(editEmailLocal || '').trim().toLowerCase()}@${editLockedDomain}`
                 : editEmail.trim();
 
+            if (canManageUsers && typeof isActive === 'boolean' && isActive !== (user.is_active ?? true)) {
+                const targetSchoolId = editSchool || user.school_id || null;
+                const { error: activeErr } = await supabase.rpc('fn_admin_set_account_active', {
+                    _school_id: targetSchoolId,
+                    _target_user_id: user.id,
+                    _is_active: isActive,
+                    _reason: isActive ? 'Reactivated in User Management' : 'Deactivated in User Management',
+                });
+                if (activeErr) throw activeErr;
+            }
+
             const body: Record<string, unknown> = {
                 adminId: user.id,
                 fullName: editFullName.trim() || user.full_name || 'User',
@@ -2139,7 +2150,6 @@ const UserDrawer: React.FC<{
             if (canManageUsers) {
                 body.role = editRole;
                 body.schoolId = editSchool || '';
-                body.isActive = isActive;
                 body.metadataPermissions = user.metadata?.permissions ?? [];
                 body.additionalRoles = additionalRoles;
                 if (composedEmail && composedEmail !== user.email) body.email = composedEmail;

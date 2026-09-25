@@ -106,6 +106,7 @@ Deno.serve(async (req: Request) => {
         const isSuperAdmin = callerRoleSet.has('superadmin');
         const isAdmin = callerRoleSet.has('admin');
         const isPrivileged = isSuperAdmin || isAdmin;
+        const effectiveActorRole = isSuperAdmin ? 'superadmin' : (isAdmin ? 'admin' : (callerProfile.role || 'admin'));
 
         // Parse and validate JSON body
         let payload;
@@ -177,7 +178,7 @@ Deno.serve(async (req: Request) => {
         // Fetch target profile
         const { data: targetProfile } = await supabaseAdmin
             .from('profiles')
-            .select('role, school_id, email, full_name')
+            .select('id, role, school_id, email, full_name, is_active, metadata')
             .eq('id', adminId)
             .single();
 
@@ -294,7 +295,6 @@ Deno.serve(async (req: Request) => {
         if (fullName) profileData.full_name = fullName;
         if (schoolId !== undefined) profileData.school_id = schoolId || null;
         if (role) profileData.role = role;
-        if (typeof isActive === 'boolean') profileData.is_active = isActive;
         if (Array.isArray(metadataPermissions)) {
             // Server-side merge: fetch existing metadata, replace only `permissions` key
             const { data: existing } = await supabaseAdmin
@@ -345,10 +345,32 @@ Deno.serve(async (req: Request) => {
                 if (fullName) rollbackData.full_name = targetProfile.full_name;
                 if (role) rollbackData.role = targetProfile.role;
                 if (schoolId !== undefined) rollbackData.school_id = targetProfile.school_id;
+                if (Array.isArray(metadataPermissions)) rollbackData.metadata = targetProfile.metadata;
 
                 await supabaseAdmin.from('profiles').update(rollbackData).eq('id', adminId);
 
                 return new Response(JSON.stringify({ error: `Auth user update failed: ${userError.message}. Profile changes have been rolled back.` }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 400,
+                });
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ACCOUNT LIFECYCLE (ACTIVE / INACTIVE) VIA CANONICAL RPC
+        // Bypassing fn_admin_set_account_active is prohibited to ensure
+        // staff session revocation, audit logging, root account protection,
+        // and tenant boundary validation are always enforced.
+        // ═══════════════════════════════════════════════════════════════
+        if (typeof isActive === 'boolean' && isActive !== targetProfile.is_active) {
+            const { error: activeError } = await callerClient.rpc('fn_admin_set_account_active', {
+                _target_user_id: adminId,
+                _is_active: isActive,
+                _reason: isActive ? 'Account activated via update_admin' : 'Account deactivated via update_admin',
+                _school_id: schoolId !== undefined ? (schoolId || null) : targetProfile.school_id,
+            });
+            if (activeError) {
+                return new Response(JSON.stringify({ error: `Account status change failed: ${activeError.message}` }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                     status: 400,
                 });
@@ -360,7 +382,7 @@ Deno.serve(async (req: Request) => {
                 school_id: targetProfile.school_id,
                 user_id: adminId,
                 title: 'Name changed',
-                message: `Your name has been changed to ${fullName} from ${targetProfile.full_name || 'Unnamed'} by ${callerProfile.full_name || caller.email || 'an administrator'} [${callerProfile.role}]`,
+                message: `Your name has been changed to ${fullName} from ${targetProfile.full_name || 'Unnamed'} by ${callerProfile.full_name || caller.email || 'an administrator'} [${effectiveActorRole}]`,
                 type: 'info',
             });
         }
