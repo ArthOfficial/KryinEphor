@@ -312,5 +312,24 @@ To adhere to the immutable migration invariant (once applied, freeze migration a
    - Comprehensive rollback covers `metadata` as well as all profile attributes if Auth user updates fail.
    - Audit and notification attribution aligned to effective actor role.
 
+---
+
+## 12. Account Lifecycle Atomicity & Workflow Verification
+
+1. **Decoupled Account Lifecycle from Generic Profile Mutations**
+   - In `UserManagement.tsx`, Account Activation and Deactivation is an explicit, dedicated user action (`handleToggleAccountActive`) with dedicated confirmation dialog/card.
+   - Generic "Save Changes" (`handleSave`) manages only identity attributes (name, email, role, school, metadataPermissions, etc.). This ensures that profile update failures do not leave accounts partially deactivated, and account lifecycle operations are explicit and auditable.
+
+2. **Edge Function Hardening against Ambiguous Payloads (`update_admin`)**
+   - `update_admin` strictly rejects `isActive` with `400 Bad Request`. All clients (including `src/lib/mcp/admin-write-tools.ts`) invoke `fn_admin_set_account_active` directly.
+
+3. **Fail-Fast Supabase Client Initialization**
+   - `src/integrations/supabase/client.ts` enforces fail-fast checking at application startup if `VITE_SUPABASE_URL` or `VITE_SUPABASE_PUBLISHABLE_KEY` is missing, preventing silent runtime failures in production.
+
+4. **CI & Real Database Integration Testing**
+   - Added `"test": "node --test tests/*.test.mjs"` to `package.json` and wired it into `.github/workflows/security.yml`.
+   - Real PostgreSQL transaction integration tests (`tests/secondary-admin-db-integration.test.mjs`) verify `fn_setup_tenant_user_domain` against actual database constraints and roles.
+
+
 
 

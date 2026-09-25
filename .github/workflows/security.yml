@@ -23,6 +23,8 @@ jobs:
         run: npm i --no-audit --no-fund @supabase/supabase-js
       - name: RLS smoke tests (anon)
         run: node scripts/test-rls.mjs
+      - name: Unit and capability regression tests
+        run: node --test tests/*.test.mjs
       - name: Supabase linter gate
         if: env.SUPABASE_ACCESS_TOKEN != ''
         run: node scripts/security-scan-ci.mjs

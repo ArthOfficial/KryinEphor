@@ -58,7 +58,7 @@ scripts/
 supabase/*
 !supabase/migrations/
 !supabase/functions/
-tests/
+!tests/
 videos/
 build-errors.txt
 build-error.txt

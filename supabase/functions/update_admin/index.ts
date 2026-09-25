@@ -119,7 +119,16 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        const { adminId, password, fullName, schoolId, role, isActive, metadataPermissions, additionalRoles, staffPersonName, designation, department } = payload;
+        if (payload.isActive !== undefined) {
+            return new Response(JSON.stringify({
+                error: 'Account active/inactive state cannot be modified via update_admin. Use the canonical fn_admin_set_account_active RPC.'
+            }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+            });
+        }
+
+        const { adminId, password, fullName, schoolId, role, metadataPermissions, additionalRoles, staffPersonName, designation, department } = payload;
         const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email;
 
         if (!adminId) {
@@ -135,7 +144,7 @@ Deno.serve(async (req: Request) => {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403,
             });
         }
-        if (isSelfUpdate && !isPrivileged && (email || password || role || schoolId !== undefined || typeof isActive === 'boolean' || Array.isArray(metadataPermissions) || Array.isArray(additionalRoles))) {
+        if (isSelfUpdate && !isPrivileged && (email || password || role || schoolId !== undefined || Array.isArray(metadataPermissions) || Array.isArray(additionalRoles))) {
             return new Response(JSON.stringify({ error: 'You can only change your own name here' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403,
             });
@@ -234,12 +243,6 @@ Deno.serve(async (req: Request) => {
         if (PROTECTED_EMAILS.has(targetEmail) && caller.id === adminId) {
             if (role && role !== 'superadmin') {
                 return new Response(JSON.stringify({ error: 'The root superadmin role cannot be changed.' }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    status: 403,
-                });
-            }
-            if (typeof isActive === 'boolean' && isActive === false) {
-                return new Response(JSON.stringify({ error: 'The root superadmin cannot be deactivated.' }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                     status: 403,
                 });
@@ -356,26 +359,6 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // ACCOUNT LIFECYCLE (ACTIVE / INACTIVE) VIA CANONICAL RPC
-        // Bypassing fn_admin_set_account_active is prohibited to ensure
-        // staff session revocation, audit logging, root account protection,
-        // and tenant boundary validation are always enforced.
-        // ═══════════════════════════════════════════════════════════════
-        if (typeof isActive === 'boolean' && isActive !== targetProfile.is_active) {
-            const { error: activeError } = await callerClient.rpc('fn_admin_set_account_active', {
-                _target_user_id: adminId,
-                _is_active: isActive,
-                _reason: isActive ? 'Account activated via update_admin' : 'Account deactivated via update_admin',
-                _school_id: schoolId !== undefined ? (schoolId || null) : targetProfile.school_id,
-            });
-            if (activeError) {
-                return new Response(JSON.stringify({ error: `Account status change failed: ${activeError.message}` }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    status: 400,
-                });
-            }
-        }
 
         if (fullName && fullName !== targetProfile.full_name) {
             await supabaseAdmin.from('notifications').insert({

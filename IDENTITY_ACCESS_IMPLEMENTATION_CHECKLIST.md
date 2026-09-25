@@ -2987,4 +2987,27 @@ Most importantly:
 5. **Automated Secondary Capability Test Suite**:
    - Added `tests/secondary-admin-capability.test.mjs` with 7/7 automated assertions covering same-school, cross-school, superadmin, and deactivated caller boundaries.
 6. **Lighthouse CI & SPA Client Initialization Hardening**:
-   - Added safe placeholder client initialization fallbacks in `src/integrations/supabase/client.ts` and `.github/workflows/lighthouse.yml`, preventing unhandled client-side runtime errors during headless analysis and addressing NO_FCP.
+   - Lighthouse workflow configured with build-time test environment variables in `.github/workflows/lighthouse.yml`.
+   - Client source code in `src/integrations/supabase/client.ts` enforces fail-fast error throwing if environment variables are missing, avoiding silent failures in production.
+
+---
+
+# ACCOUNT LIFECYCLE DECOUPLING & REAL DB INTEGRATION VERIFICATION
+
+### Applied Fixes & Verified Invariants:
+1. **Explicit Account Lifecycle Decoupling in UI (`UserManagement.tsx`)**:
+   - Separated Account Activation / Deactivation into an explicit standalone action with confirmation modal/card (`handleToggleAccountActive`).
+   - Generic "Save Changes" (`handleSave`) strictly handles profile attributes (name, email, role, school, metadataPermissions, etc.) and no longer touches account active/inactive state, eliminating non-atomic pseudo-transactions.
+2. **`update_admin` Strict Lifecycle Rejection**:
+   - `update_admin` Edge Function explicitly rejects `isActive` payload with `400 Bad Request` directing callers to the canonical `fn_admin_set_account_active` RPC.
+   - MCP tool `setUserActiveTool` in `src/lib/mcp/admin-write-tools.ts` calls `fn_admin_set_account_active` directly via RPC.
+3. **Production Fail-Fast Client Configuration (`src/integrations/supabase/client.ts`)**:
+   - Restored strict fail-fast validation in `client.ts` if `VITE_SUPABASE_URL` or `VITE_SUPABASE_PUBLISHABLE_KEY` is undefined, while Lighthouse CI workflow passes placeholder variables at build time.
+4. **CI & Automated Test Suite Integration**:
+   - Added `"test": "node --test tests/*.test.mjs"` to `package.json`.
+   - Wired `npm test` into `.github/workflows/security.yml` under `Unit and capability regression tests`.
+   - Un-ignored `!tests/` in `.gitignore` to ensure test files remain tracked in git.
+5. **Real PostgreSQL Integration Test Suite**:
+   - Added `tests/secondary-admin-db-integration.test.mjs` executing real database transactions against `schools`, `auth.users`, `profiles`, `user_roles`, and `fn_setup_tenant_user_domain`.
+   - Successfully executed and verified against live Supabase PostgreSQL database (same-school allowed, cross-school denied with error matching, plain teacher denied).
+

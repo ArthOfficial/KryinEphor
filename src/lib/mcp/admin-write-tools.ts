@@ -28,10 +28,13 @@ export const setUserActiveTool = defineTool({
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     handler: (input, ctx) => tool(async () => {
         const actor = await getActor(ctx, 'admin');
-        const { data, error } = await actor.client.functions.invoke('update_admin', {
-            body: { adminId: input.user_id, isActive: input.active },
+        const { error } = await actor.client.rpc('fn_admin_set_account_active', {
+            _school_id: actor.schoolId,
+            _target_user_id: input.user_id,
+            _is_active: input.active,
+            _reason: input.active ? 'Reactivated by admin tool' : 'Deactivated by admin tool',
         });
-        if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Account status change failed.');
+        failIfError(error);
         return success({ user_id: input.user_id, active: input.active, updated: true });
     }),
 });

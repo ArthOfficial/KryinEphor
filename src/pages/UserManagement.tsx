@@ -33,6 +33,7 @@ import {
     Settings2,
     ExternalLink,
     ShieldAlert,
+    Power,
 } from 'lucide-react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
@@ -1302,6 +1303,8 @@ const UserDrawer: React.FC<{
     const [editEmail, setEditEmail] = useState('');
     const [editEmailLocal, setEditEmailLocal] = useState('');
     const [isActive, setIsActive] = useState(true);
+    const [accountStatusBusy, setAccountStatusBusy] = useState(false);
+    const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [additionalRoles, setAdditionalRoles] = useState<string[]>([]);
     const [editStaffPersonName, setEditStaffPersonName] = useState('');
     const [editDesignation, setEditDesignation] = useState('');
@@ -1505,6 +1508,8 @@ const UserDrawer: React.FC<{
             const atIdx = (user.email || '').indexOf('@');
             setEditEmailLocal(atIdx > 0 ? user.email.slice(0, atIdx) : '');
             setIsActive(user.is_active ?? true);
+            setShowStatusConfirm(false);
+            setAccountStatusBusy(false);
             setNewPass('');
             setMessage('');
             setErrorMsg('');
@@ -2120,6 +2125,35 @@ const UserDrawer: React.FC<{
         }
     };
 
+    // Handle Explicit Account Activation / Deactivation Lifecycle
+    const handleToggleAccountActive = async () => {
+        if (!user || isProtected) return;
+        const nextActive = !isActive;
+        setAccountStatusBusy(true);
+        try {
+            await supabase.auth.refreshSession();
+            const targetSchoolId = editSchool || user.school_id || null;
+            const { error: activeErr } = await supabase.rpc('fn_admin_set_account_active', {
+                _school_id: targetSchoolId,
+                _target_user_id: user.id,
+                _is_active: nextActive,
+                _reason: nextActive ? 'Reactivated in User Management' : 'Deactivated in User Management',
+            });
+            if (activeErr) throw activeErr;
+
+            setIsActive(nextActive);
+            user.is_active = nextActive;
+            toast.success(nextActive ? 'Account reactivated successfully.' : 'Account deactivated and active sessions revoked.');
+            setShowStatusConfirm(false);
+            queryClient.invalidateQueries({ queryKey: qk.userManagement });
+            onSaved();
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to update account status');
+        } finally {
+            setAccountStatusBusy(false);
+        }
+    };
+
     const handleSave = async () => {
         if (!user) return;
         setSaving(true);
@@ -2131,17 +2165,6 @@ const UserDrawer: React.FC<{
             const composedEmail = editLockedDomain
                 ? `${(editEmailLocal || '').trim().toLowerCase()}@${editLockedDomain}`
                 : editEmail.trim();
-
-            if (canManageUsers && typeof isActive === 'boolean' && isActive !== (user.is_active ?? true)) {
-                const targetSchoolId = editSchool || user.school_id || null;
-                const { error: activeErr } = await supabase.rpc('fn_admin_set_account_active', {
-                    _school_id: targetSchoolId,
-                    _target_user_id: user.id,
-                    _is_active: isActive,
-                    _reason: isActive ? 'Reactivated in User Management' : 'Deactivated in User Management',
-                });
-                if (activeErr) throw activeErr;
-            }
 
             const body: Record<string, unknown> = {
                 adminId: user.id,
@@ -2927,21 +2950,67 @@ const UserDrawer: React.FC<{
                                     <span className="text-xs font-bold uppercase tracking-wider text-foreground">Account Actions & Security</span>
                                 </div>
 
-                                {/* Status Toggle Button */}
+                                {/* Dedicated Account Lifecycle Action */}
                                 <div>
-                                    <label className="text-xs font-semibold text-muted block mb-1">Account Activation Status</label>
-                                    <button
-                                        onClick={() => !isProtected && setIsActive(!isActive)}
-                                        disabled={isProtected}
-                                        className={`w-full py-2.5 px-3 rounded-xl shadow-sm border font-semibold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${
-                                            isActive
-                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                                                : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
-                                        }`}
-                                    >
-                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                                        {isActive ? 'Account is Active (Click to Disable)' : 'Account is Disabled (Click to Activate)'}
-                                    </button>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-xs font-semibold text-muted block">Account Lifecycle Status</label>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            isActive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                        }`}>
+                                            {isActive ? 'Account Active' : 'Account Disabled'}
+                                        </span>
+                                    </div>
+
+                                    {isProtected ? (
+                                        <p className="text-[11px] text-muted italic">Protected system accounts cannot be deactivated.</p>
+                                    ) : !showStatusConfirm ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowStatusConfirm(true)}
+                                            className={`w-full py-2.5 px-3 rounded-xl shadow-2xs border font-semibold text-xs transition-all flex items-center justify-center gap-2 ${
+                                                isActive
+                                                    ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                                    : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                            }`}
+                                        >
+                                            <Power className="w-3.5 h-3.5" />
+                                            {isActive ? 'Deactivate Account…' : 'Reactivate Account…'}
+                                        </button>
+                                    ) : (
+                                        <div className={`p-3.5 rounded-xl border space-y-2.5 ${
+                                            isActive ? 'bg-rose-50/70 border-rose-200 text-rose-950' : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                                        }`}>
+                                            <div className="flex items-center gap-2 font-bold text-xs">
+                                                <AlertTriangle className={`w-4 h-4 ${isActive ? 'text-rose-600' : 'text-emerald-600'}`} />
+                                                <span>{isActive ? 'Confirm Account Deactivation' : 'Confirm Account Reactivation'}</span>
+                                            </div>
+                                            <p className="text-[11px] leading-relaxed opacity-90">
+                                                {isActive
+                                                    ? 'Deactivating this user will immediately revoke all active Staff sessions and block sign-in. Profile and operational links are safely retained.'
+                                                    : 'Reactivating this user will restore their sign-in capability and permission to use Kryin Ephor.'}
+                                            </p>
+                                            <div className="flex items-center justify-end gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowStatusConfirm(false)}
+                                                    disabled={accountStatusBusy}
+                                                    className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleToggleAccountActive}
+                                                    disabled={accountStatusBusy}
+                                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg text-white shadow-2xs flex items-center gap-1.5 ${
+                                                        isActive ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                                                    }`}
+                                                >
+                                                    {accountStatusBusy ? 'Updating…' : (isActive ? 'Yes, Deactivate Account' : 'Yes, Reactivate Account')}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Password Reset */}
