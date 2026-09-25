@@ -503,7 +503,7 @@ Deno.serve(async (req: Request) => {
                     .map((r: string) => r.trim())
                     .filter((r: string) => VALID_ROLES.includes(r as typeof VALID_ROLES[number]))
                     .filter((r: string) => r !== primary)
-                    .filter((r: string) => callerProfile.role === 'superadmin' ? true : r !== 'superadmin')
+                    .filter((r: string) => isSuperAdmin ? true : r !== 'superadmin')
             ));
 
             const keep = [primary, ...cleaned];
@@ -546,7 +546,7 @@ Deno.serve(async (req: Request) => {
                 await supabaseAdmin.from('admin_action_audit').insert({
                     school_id: effectiveSchool,
                     actor_id: actorUserId,
-                    actor_role: callerProfile.role,
+                    actor_role: isSuperAdmin ? 'superadmin' : (isAdmin ? 'admin' : callerProfile.role),
                     target_user_id: targetUserId,
                     action: actions.join(','),
                     detail: {

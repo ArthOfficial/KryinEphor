@@ -875,11 +875,19 @@ DECLARE
     v_other_children_count INT := 0;
     v_should_be_primary BOOLEAN;
 BEGIN
-    SELECT role, school_id INTO v_caller_role, v_caller_school
+    SELECT school_id INTO v_caller_school
     FROM public.profiles
     WHERE id = _caller_id AND is_active IS TRUE AND deleted_at IS NULL;
 
-    IF v_caller_role NOT IN ('superadmin', 'admin') THEN
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Access denied: caller account is inactive or deleted';
+    END IF;
+
+    IF public.has_role(_caller_id, 'superadmin') THEN
+        v_caller_role := 'superadmin';
+    ELSIF public.has_role(_caller_id, 'admin') THEN
+        v_caller_role := 'admin';
+    ELSE
         RAISE EXCEPTION 'Access denied: admin authorization required';
     END IF;
 
