@@ -241,7 +241,7 @@ BEGIN
             RAISE EXCEPTION 'Target class % not found or not active in this school', _class_id;
         END IF;
 
-        INSERT INTO public.class_enrollments (class_id, school_id, student_id, created_at)
+        INSERT INTO public.class_enrollments (class_id, school_id, student_id, enrolled_at)
         VALUES (_class_id, _school_id, _user_id, now())
         ON CONFLICT (class_id, student_id) DO UPDATE SET
             deleted_at = NULL;
