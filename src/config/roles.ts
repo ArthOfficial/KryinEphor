@@ -31,6 +31,7 @@ export const getRoleStyle = (role: string) => ROLE_CONFIG[role] || { label: role
 export const DASHBOARD_ROUTES: RouteConfig[] = [
     { path: '/super-admin', label: 'Dashboard', icon: 'LayoutDashboard', roles: ['superadmin'], keywords: ['overview', 'home', 'main', 'status'] },
     { path: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', roles: ['admin', 'teacher', 'student', 'parent', 'receptionist', 'accountant'], keywords: ['overview', 'home', 'main'] },
+    { path: '/announcements', label: 'Announcements', icon: 'Bell', roles: ['superadmin', 'admin', 'teacher', 'student', 'parent', 'receptionist', 'accountant'], keywords: ['notices', 'school', 'messages', 'updates'] },
     { path: '/database', label: 'Database', icon: 'Database', roles: ['superadmin'], keywords: ['tenant', 'schema', 'tables', 'school', 'data', 'infrastructure'] },
     { path: '/users', label: 'Users', icon: 'Users', roles: ['superadmin', 'admin', 'receptionist'], keywords: ['admin', 'users', 'staff', 'management', 'accounts', 'recovery', 'otp'] },
     { path: '/finance', label: 'Finance', icon: 'Coins', roles: ['superadmin'], keywords: ['billing', 'payments', 'fees', 'money', 'invoice', 'revenue'] },

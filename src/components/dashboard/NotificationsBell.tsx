@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications, qk, type NotificationRow } from '../../hooks/queries';
+import { subscribeToAnnouncementPush } from '../../lib/announcementPush';
 
 const iconFor = (type: string | null) => {
     switch (type) {
@@ -43,8 +44,34 @@ const NotificationsBell: React.FC = () => {
     const wrapRef = useRef<HTMLDivElement>(null);
 
     const notificationsQuery = useNotifications(user?.id);
-    const items: NotificationRow[] = notificationsQuery.data ?? [];
+    const items: NotificationRow[] = useMemo(() => notificationsQuery.data ?? [], [notificationsQuery.data]);
     const loading = notificationsQuery.isLoading;
+
+    useEffect(() => {
+        if (!user?.id || !('Notification' in window) || Notification.permission !== 'granted') return;
+        void subscribeToAnnouncementPush().catch(() => {});
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+        const channel = supabase.channel(`announcement-alerts:${user.id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, async payload => {
+                const row = payload.new as { announcement_id?: string; title?: string; message?: string; is_read?: boolean; push_sent_at?: string | null };
+                if (!row.announcement_id || row.is_read || row.push_sent_at || !('Notification' in window) || Notification.permission !== 'granted') return;
+                const options = { body: row.message || 'A new announcement is available', tag: `announcement-${row.announcement_id}`, icon: '/icons/kryin-192.png', data: { url: '/announcements' } };
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const registration = await navigator.serviceWorker.getRegistration();
+                        if (registration) { await registration.showNotification(row.title || 'New announcement', options); return; }
+                    }
+                    const notification = new Notification(row.title || 'New announcement', options);
+                    notification.onclick = () => { window.focus(); navigate('/announcements'); notification.close(); };
+                } catch {
+                    // The in-app bell remains available when this browser rejects system notifications.
+                }
+            }).subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [user?.id, navigate]);
 
     const unread = useMemo(() => items.filter(i => !i.is_read).length, [items]);
 

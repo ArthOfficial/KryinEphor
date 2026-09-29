@@ -33,3 +33,6 @@ verify_jwt = true
 
 [functions.mailer_health_check]
 verify_jwt = false
+
+[functions.announcement_push]
+verify_jwt = true

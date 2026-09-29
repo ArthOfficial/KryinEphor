@@ -76,7 +76,7 @@ export const getActor = async (ctx: ToolContext, access: Access): Promise<McpAct
     const [school] = await schoolResponse.json() as Array<{ id: string; name: string; combined_parent_student_account: boolean }>;
     if (!school) throw new Error('Your school is unavailable.');
 
-    if (access === 'admin' && profile.role !== 'admin') throw new Error('This tool is available only to school administrators.');
+    if (access === 'admin' && !roles.includes('admin')) throw new Error('This tool is available only to school administrators.');
     if (access === 'teacher' && profile.role !== 'teacher') throw new Error('This tool is available only to teachers.');
     if (access === 'combined-student' && (!roles.includes('student') || !roles.includes('parent') || school.combined_parent_student_account === false)) {
         throw new Error('MCP is available only for a combined student/parent account. Ask your school for a new combined account.');

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu, ArrowLeftRight, Lock } from 'lucide-react';
+import { Search, ShieldCheck, LayoutDashboard, Database, Users, Coins, CheckSquare, AlertTriangle, Settings, School as SchoolIcon, Menu, ArrowLeftRight, Lock, Bell } from 'lucide-react';
 import NotificationsBell from './NotificationsBell';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -19,7 +19,8 @@ const iconMap: Record<string, LucideIcon> = {
     'CheckSquare': CheckSquare,
     'AlertTriangle': AlertTriangle,
     'Settings': Settings,
-    'School': SchoolIcon
+    'School': SchoolIcon,
+    'Bell': Bell,
 };
 
 const Header: React.FC<HeaderProps> = ({ title = 'Dashboard Overview' }) => {

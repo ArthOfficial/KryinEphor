@@ -6,6 +6,7 @@ import { logger } from '../lib/logger';
 import { AuthContext, type AuthUser, type StaffPinStatus, type LinkedStudentPersona } from './authContextValue';
 import { shouldHydrateAuthEvent, signOutBeforeRedirect } from '../lib/auth/loginSession';
 import { StaffPinModal } from '../components/auth/StaffPinModal';
+import { unsubscribeFromAnnouncementPush } from '../lib/announcementPush';
 
 // Re-export useAuth from its dedicated module so existing imports keep working
 // while React Fast Refresh treats this file as a pure component module.
@@ -488,6 +489,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Global session revocation happens lazily on next server contact.
         try {
             // Phase 17: Revoke server staff unlock session on logout
+            try { await unsubscribeFromAnnouncementPush(); } catch { /* best effort */ }
             if (staffSessionToken) {
                 try {
                     await supabase.rpc('fn_revoke_staff_session', {

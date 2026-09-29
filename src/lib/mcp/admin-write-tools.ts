@@ -90,22 +90,39 @@ export const recordFeePaymentTool = defineTool({
 });
 
 export const createAnnouncementTool = defineTool({
-    name: 'admin_create_announcement', title: 'Create school announcement or event',
-    description: 'Publish an announcement or calendar event visible to the whole school. Confirm the title, date, and details with the administrator before calling.',
+    name: 'admin_create_announcement', title: 'Publish school announcement',
+    description: 'Publish to the announcement board and notify the selected school recipients. Confirm the message and audience with the administrator before calling.',
     inputSchema: {
-        title: z.string().trim().min(1).max(160), description: z.string().trim().max(2000).optional(),
-        event_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), category: z.string().trim().max(40).default('announcement'),
-        location: z.string().trim().max(160).optional(),
+        title: z.string().trim().min(1).max(180), message: z.string().trim().min(1).max(30000),
+        audience: z.enum(['everyone', 'roles', 'classes', 'users']).default('everyone'),
+        role_targets: z.array(z.enum(['admin', 'teacher', 'student', 'parent', 'accountant', 'receptionist'])).default([]),
+        class_targets: z.array(z.string().uuid()).default([]), user_targets: z.array(z.string().uuid()).default([]),
+        expires_at: z.string().datetime({ offset: true }).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     handler: (input, ctx) => tool(async () => {
         const actor = await getActor(ctx, 'admin');
-        const { data, error } = await actor.client.from('events').insert({
-            school_id: actor.schoolId, title: input.title, description: input.description ?? null,
-            event_date: input.event_date, category: input.category, location: input.location ?? null, created_by: actor.id,
+        const { data, error } = await actor.client.from('announcements').insert({
+            school_id: actor.schoolId, created_by: actor.id, title: input.title, body: input.message,
+            audience: input.audience, role_targets: input.audience === 'roles' ? input.role_targets : [],
+            class_targets: input.audience === 'classes' ? input.class_targets : [],
+            user_targets: input.audience === 'users' ? input.user_targets : [],
+            expires_at: input.expires_at ?? null, status: 'published',
         }).select('id').single();
         failIfError(error);
-        return success({ created: true, event_id: data?.id, title: input.title, event_date: input.event_date });
+        let backgroundPush = false;
+        if (data?.id) {
+            try {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    const delivery = await actor.client.functions.invoke('announcement_push', {
+                        body: { action: 'deliver', announcementId: data.id },
+                    });
+                    if (delivery.error || delivery.data?.error) break;
+                    if (!delivery.data?.remaining) { backgroundPush = true; break; }
+                }
+            } catch { /* The announcement and in-app notifications were saved. */ }
+        }
+        return success({ published: true, announcement_id: data?.id, title: input.title, audience: input.audience, background_push: backgroundPush });
     }),
 });
 

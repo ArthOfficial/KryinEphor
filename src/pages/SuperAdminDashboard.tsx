@@ -37,6 +37,7 @@ import {
     RefreshCw
 } from 'lucide-react';
 import Sidebar from '../components/dashboard/Sidebar';
+import AnnouncementPreview from '../components/announcements/AnnouncementPreview';
 import Header from '../components/dashboard/Header';
 import { supabase } from '../lib/supabase';
 import { getFunctionErrorMessage } from '../lib/functionErrors';
@@ -700,6 +701,8 @@ const SuperAdminDashboard: React.FC = () => {
                         </div>
                         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-teal-50 to-transparent opacity-50 rounded-bl-[100px] pointer-events-none"></div>
                     </motion.div>
+
+                    <div className="mb-8"><AnnouncementPreview /></div>
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">

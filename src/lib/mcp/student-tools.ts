@@ -75,16 +75,23 @@ export const studentHomeworkTool = defineTool({
 
 export const studentAnnouncementsTool = defineTool({
     name: 'student_school_announcements', title: 'School announcements',
-    description: 'Show upcoming school announcements and events for the connected student’s school. Read-only.',
+    description: 'Show current announcement board messages selected for the connected student, plus upcoming calendar events. Read-only.',
     annotations: { readOnlyHint: true, openWorldHint: false },
     handler: (_, ctx) => tool(async () => {
         const actor = await getActor(ctx, 'combined-student');
-        const { data, error } = await actor.client.from('events')
+        const now = new Date().toISOString();
+        const { data: announcements, error: announcementError } = await actor.client.from('announcements')
+            .select('id,title,body,published_at,expires_at,audience')
+            .eq('status', 'published').is('deleted_at', null)
+            .lte('published_at', now).or(`expires_at.is.null,expires_at.gt.${now}`)
+            .order('published_at', { ascending: false }).limit(20);
+        failIfError(announcementError);
+        const { data: events, error } = await actor.client.from('events')
             .select('title, description, event_date, end_date, category, location, is_all_day')
             .eq('school_id', actor.schoolId).is('deleted_at', null)
             .gte('event_date', new Date().toISOString().slice(0, 10)).order('event_date').limit(20);
         failIfError(error);
-        return success({ school: actor.schoolName, events: data ?? [] });
+        return success({ school: actor.schoolName, announcements: announcements ?? [], events: events ?? [] });
     }),
 });
 

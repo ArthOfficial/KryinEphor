@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import Sidebar from '../components/dashboard/Sidebar';
 import Header from '../components/dashboard/Header';
 import StudentDashboardExperience from '../components/dashboard/StudentDashboardExperience';
+import AnnouncementPreview from '../components/announcements/AnnouncementPreview';
 import { ChildSelector } from '../components/dashboard/ChildSelector';
 import {
     Users, Presentation, Coins, GraduationCap, ArrowUp, UserPlus, Receipt,
@@ -322,6 +323,8 @@ const Dashboard: React.FC = () => {
                         </div>
                         <div className="absolute -top-20 -right-20 w-64 h-64 bg-teal-100 rounded-full blur-3xl opacity-50"></div>
                     </div>
+
+                    <AnnouncementPreview />
 
                     {(role === 'student' || role === 'parent') && (
                         <div className="space-y-6 animate-fade-up">

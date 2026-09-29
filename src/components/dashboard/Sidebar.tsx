@@ -88,7 +88,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
             return [
                 {
                     title: "Overview",
-                    items: allowedRoutes.filter(r => r.label === 'Dashboard')
+                    items: allowedRoutes.filter(r => ['Dashboard', 'Announcements'].includes(r.label))
                 },
                 {
                     title: "Student Portal",
@@ -106,7 +106,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
             return [
                 {
                     title: "Overview",
-                    items: allowedRoutes.filter(r => r.label === 'Dashboard')
+                    items: allowedRoutes.filter(r => ['Dashboard', 'Announcements'].includes(r.label))
                 },
                 {
                     title: "Parent Portal",
@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage = 'Dashboard' }) => {
         return [
             {
                 title: "Main Menu",
-                items: allowedRoutes.filter(r => ['Dashboard', 'Database', 'Users'].includes(r.label))
+                items: allowedRoutes.filter(r => ['Dashboard', 'Announcements', 'Database', 'Users'].includes(r.label))
             },
             {
                 title: "Academics",

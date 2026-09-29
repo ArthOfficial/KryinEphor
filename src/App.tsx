@@ -34,6 +34,7 @@ const StudentTests = lazy(() => import('./pages/StudentTests'));
 const StudentPerformance = lazy(() => import('./pages/StudentPerformance'));
 const MarksEntry = lazy(() => import('./pages/MarksEntry'));
 const TestManagement = lazy(() => import('./pages/TestManagement'));
+const Announcements = lazy(() => import('./pages/Announcements'));
 
 function RouteLoading() {
   return <div className="min-h-screen bg-background" aria-busy="true" aria-label="Loading page" />;
@@ -63,6 +64,7 @@ function AppContent() {
               <PageTransition><Dashboard /></PageTransition>
             </ProtectedRoute>
           } />
+          <Route path="/announcements" element={<ProtectedRoute><PageTransition><Announcements /></PageTransition></ProtectedRoute>} />
           <Route path="/focus" element={
             <ProtectedRoute allowedRoles={['student']}>
               <FocusMode />

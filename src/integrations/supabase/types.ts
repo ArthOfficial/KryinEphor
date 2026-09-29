@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      announcements: {
+        Row: {
+          id: string
+          school_id: string | null
+          created_by: string | null
+          title: string
+          body: string
+          accent: string
+          audience: string
+          role_targets: string[]
+          class_targets: string[]
+          user_targets: string[]
+          status: string
+          published_at: string | null
+          expires_at: string | null
+          created_at: string
+          updated_at: string
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          school_id?: string | null
+          created_by?: string | null
+          title: string
+          body?: string
+          accent?: string
+          audience: string
+          role_targets?: string[]
+          class_targets?: string[]
+          user_targets?: string[]
+          status?: string
+          published_at?: string | null
+          expires_at?: string | null
+          created_at?: string
+          updated_at?: string
+          deleted_at?: string | null
+        }
+        Update: {
+          id?: string
+          school_id?: string | null
+          created_by?: string | null
+          title?: string
+          body?: string
+          accent?: string
+          audience?: string
+          role_targets?: string[]
+          class_targets?: string[]
+          user_targets?: string[]
+          status?: string
+          published_at?: string | null
+          expires_at?: string | null
+          created_at?: string
+          updated_at?: string
+          deleted_at?: string | null
+        }
+        Relationships: []
+      }
       academic_years: {
         Row: {
           created_at: string | null
