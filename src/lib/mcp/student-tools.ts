@@ -85,7 +85,8 @@ export const studentAnnouncementsTool = defineTool({
             .eq('status', 'published').is('deleted_at', null)
             .lte('published_at', now).or(`expires_at.is.null,expires_at.gt.${now}`)
             .order('published_at', { ascending: false }).limit(20);
-        failIfError(announcementError);
+        // Keep the existing events tool usable until the announcement migration reaches production.
+        if (announcementError?.code !== 'PGRST205') failIfError(announcementError);
         const { data: events, error } = await actor.client.from('events')
             .select('title, description, event_date, end_date, category, location, is_all_day')
             .eq('school_id', actor.schoolId).is('deleted_at', null)
